@@ -14,7 +14,12 @@ let stopped = false;
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   output = vscode.window.createOutputChannel('PokeTokenBar', { log: true });
-  statusItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
+  statusItem = vscode.window.createStatusBarItem(
+    'poketokenbar.usage',
+    vscode.StatusBarAlignment.Right,
+    10_000,
+  );
+  statusItem.name = 'PokeTokenBar usage';
   statusItem.command = 'poketokenbar.refresh';
   context.subscriptions.push(output, statusItem);
 
@@ -129,6 +134,7 @@ function render(response: UsageResponse): void {
   }
 
   statusItem.tooltip = tooltip;
+  output.info(`status bar shows "${statusItem.text}" (today ${today.total} tokens, ${today.models.length} models)`);
 }
 
 function appendModels(tooltip: vscode.MarkdownString, totals: UsageTotals): void {
