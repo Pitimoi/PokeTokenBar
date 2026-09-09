@@ -8,6 +8,7 @@ import {
   StreamMessageReader,
   StreamMessageWriter,
 } from 'vscode-jsonrpc/node';
+import { binaryPermissionRefusal } from './guards';
 
 export class SidecarError extends Error {}
 
@@ -84,12 +85,9 @@ export class Sidecar {
     }
 
     const info = await stat(executable);
-    // Group- or world-writable means a principal other than the owner can swap the binary
-    // between this check and the spawn. Windows uses ACLs, where this mode is not meaningful.
-    if (process.platform !== 'win32' && (info.mode & 0o022) !== 0) {
-      throw new SidecarError(
-        `refusing to run ${executable}: it is writable by group or others (mode ${(info.mode & 0o777).toString(8)})`,
-      );
+    const refusal = binaryPermissionRefusal(info.mode, process.platform);
+    if (refusal) {
+      throw new SidecarError(`refusing to run ${executable}: ${refusal}`);
     }
 
     return executable;

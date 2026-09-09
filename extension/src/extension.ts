@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { formatTokens, mayStartHelper } from './guards';
 import { GetInfo, GetTodayUsage, ScanReport, TodayUsageResponse } from './protocol';
 import { Sidecar, SidecarError } from './sidecar';
 
@@ -23,7 +24,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // The helper is not started in an untrusted workspace. It reads local AI-tool logs and will
   // later read credentials, and an untrusted folder can contribute configuration, so the
   // conservative order is: trust first, then start.
-  if (!vscode.workspace.isTrusted) {
+  if (!mayStartHelper(vscode.workspace.isTrusted)) {
     statusItem.text = '$(shield) Usage: trust required';
     statusItem.tooltip = 'PokeTokenBar does not run in an untrusted workspace.';
     statusItem.show();
@@ -150,15 +151,3 @@ function stop(): void {
   sidecar = undefined;
 }
 
-function formatTokens(total: number): string {
-  if (total >= 1_000_000_000) {
-    return `${(total / 1_000_000_000).toFixed(1)}B`;
-  }
-  if (total >= 1_000_000) {
-    return `${(total / 1_000_000).toFixed(1)}M`;
-  }
-  if (total >= 1_000) {
-    return `${(total / 1_000).toFixed(1)}K`;
-  }
-  return String(total);
-}

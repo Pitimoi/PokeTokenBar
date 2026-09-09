@@ -50,7 +50,8 @@
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
     "copy-sidecar": "node scripts/copy-sidecar.mjs",
-    "dev": "npm run copy-sidecar && npm run compile"
+    "dev": "npm run copy-sidecar && npm run compile",
+    "test": "npm run compile && node --test test/*.test.mjs"
   },
   "dependencies": {
     "vscode-jsonrpc": "^8.2.1"
