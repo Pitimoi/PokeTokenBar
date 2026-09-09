@@ -61,17 +61,61 @@ Planned, when the work that needs them starts:
 
 | Package | Why |
 |---|---|
+| `StreamJsonRpc` + `vscode-jsonrpc` (npm) | JSON-RPC 2.0 over stdio, Content-Length framed. Both Microsoft, and the pairing VS Code language servers already use. |
 | `Microsoft.Data.Sqlite` | Cursor's `state.vscdb`. Hand-written sqlite P/Invoke on three platforms is strictly worse. |
-| `System.Security.Cryptography.ProtectedData` | Windows DPAPI; not in the cross-platform base BCL. |
-| `vscode-jsonrpc` (npm) | Host-side protocol framing. The LSP team's implementation, not a bespoke one. |
+| `System.Security.Cryptography.ProtectedData` | Windows DPAPI — but only if we ever persist a secret of *our own*. Reading other tools' credentials needs no store (see below). |
 
-The one place bespoke wins is the **protocol surface**: invariant 3 requires a closed command set,
-and a JSON-RPC framework that dispatches by reflection over a target object widens exactly what
-that invariant narrows. So the sidecar's command dispatch is explicit even though its framing is
-not. That is a deliberate exception, argued on surface area — not a general preference for
-hand-rolling.
+### Why not a binary protocol
+
+FlatBuffers, Cap'n Proto and friends exist to give zero-copy access to large payloads. This
+protocol carries a handful of aggregates at minute cadence, so that buys nothing measurable, and
+the costs are real: `flatc` codegen on three platforms plus CI, generated code in two languages,
+accessor-based TypeScript ergonomics, and a wire format nobody can eyeball — which directly
+undercuts auditing the closed command surface that invariant 3 depends on. gRPC is excluded on
+transport grounds: HTTP/2 means a listening port, which invariant 1 rules out.
+
+If payloads later grow to full history series, `NerdbankMessagePackFormatter` is an upgrade path
+inside StreamJsonRpc rather than a protocol rewrite.
+
+### StreamJsonRpc under NativeAOT
+
+Formatter choice is the whole game, and the default is the wrong one:
+
+| Formatter | AOT |
+|---|---|
+| `NerdbankMessagePackFormatter` | Fully supported, officially recommended |
+| `SystemTextJsonFormatter` | Semi-safe — needs `JsonSerializerContext`, `[JsonSerializable]`, `RegisterGenericType<T>()` |
+| `JsonMessageFormatter` (**default**) | **Not AOT-ready** |
+
+Server side must use the `AddLocalRpcTarget(RpcTargetMetadata, …)` overload and apply
+`[JsonRpcContract]` + `[GenerateShape]` to the contract interface. That attribute is also what
+satisfies invariant 3: the callable surface is declared once and enforced by the compiler, which is
+a stronger closed-set guarantee than a hand-written dispatch switch.
 
 Test-only packages are unconstrained; they never ship in the sidecar.
+
+## Credentials
+
+Verified on a Windows machine with Claude Code installed, and cross-checked against the Swift
+original: **there is no per-platform credential store to abstract over for reading.**
+
+- `~/.claude/.credentials.json` holds `claudeAiOauth.{accessToken, refreshToken, expiresAt,
+  refreshTokenExpiresAt, scopes, subscriptionType, rateLimitTier}`. Same path on all three
+  platforms.
+- Windows Credential Manager holds no Claude, Cursor or Gemini entries — the file is the only
+  source.
+- The Swift original prefers this file over the macOS Keychain, and records a measured 13-second
+  block from `SecItemCopyMatching` during a poll (`OAuthLimitsProvider.swift:177`). Keychain is the
+  slow fallback, not the primary.
+- There is no `libsecret`/`secret-tool` path anywhere in the original: it is macOS-only, so Linux
+  was never covered upstream. Nothing extra is needed, since the file path is identical.
+
+So credential *reading* is a JSON file read plus an optional macOS-only Keychain fallback.
+Credential *writing* is a separate question that only arises if the session-key feature is ported;
+that is the one case needing DPAPI / Keychain / libsecret, and it is deferred.
+
+`subscriptionType` and `rateLimitTier` are present in the file, which may remove the need for an
+API call to render a limit tier.
 
 ## Prerequisites
 
