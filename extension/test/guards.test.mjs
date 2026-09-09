@@ -1,6 +1,12 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { binaryPermissionRefusal, formatTokens, mayStartHelper } from '../out/guards.js';
+import {
+  binaryPermissionRefusal,
+  formatTokens,
+  maxRestartAttempts,
+  mayStartHelper,
+  restartDelayMs,
+} from '../out/guards.js';
 
 test('helper is not started in an untrusted workspace', () => {
   assert.equal(mayStartHelper(false), false);
@@ -44,4 +50,17 @@ test('formats implausible totals as unknown rather than NaN', () => {
   assert.equal(formatTokens(Number.NaN), '—');
   assert.equal(formatTokens(Number.POSITIVE_INFINITY), '—');
   assert.equal(formatTokens(-1), '—');
+});
+
+test('restart backoff grows and is capped', () => {
+  assert.equal(restartDelayMs(1), 1_000);
+  assert.equal(restartDelayMs(2), 2_000);
+  assert.equal(restartDelayMs(3), 4_000);
+  assert.equal(restartDelayMs(maxRestartAttempts), 16_000);
+});
+
+test('restart backoff clamps nonsense attempt numbers', () => {
+  assert.equal(restartDelayMs(0), 1_000);
+  assert.equal(restartDelayMs(-5), 1_000);
+  assert.equal(restartDelayMs(999), restartDelayMs(maxRestartAttempts));
 });

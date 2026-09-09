@@ -129,6 +129,32 @@ machine that cannot run `dotnet publish` — AOT-hostile calls fail the ordinary
 
 Test-only packages are unconstrained; they never ship in the sidecar.
 
+### Protocol robustness, measured
+
+Fuzzed by sending hostile frames to the built binary, one fresh process per case
+(`extension/test/protocol.test.mjs` keeps this as a regression suite):
+
+| Input | Result |
+|---|---|
+| Unknown method | `-32601`, stays alive |
+| `System.IO.File.Delete` with a path argument | `-32601` — the closed set holds; no dispatch by type name |
+| Wrong parameter shape, extra parameters, 300 KB string argument | `-32602`, stays alive |
+| Oversized `Content-Length` | waits for more bytes, stays alive |
+| Missing `jsonrpc` member | accepted; StreamJsonRpc is lenient here |
+| **Malformed JSON** | **process dies** — unhandled `JsonReaderException` |
+| **Nesting past depth 64** | **process dies** — unhandled `JsonReaderException` |
+
+No error response disclosed a filesystem path.
+
+The two crashes are unhandled exceptions from the evaluation-only formatter rather than the
+`-32700` parse error the specification calls for. They are **not reachable today**: only the
+extension writes frames and `vscode-jsonrpc` constructs them, so no untrusted party can deliver
+malformed bytes. Following the defect protocol, an unreachable trigger gets no guard in the
+sidecar — but a helper that stays dead leaves a stale number on screen, so the host detects the
+exit and restarts with exponential backoff and a hard attempt cap. If a future change forwards
+webview or workspace input toward this boundary, the trigger becomes reachable and the crash
+must be fixed at the formatter rather than absorbed by the restart.
+
 ## Credentials
 
 Verified on a Windows machine with Claude Code installed, and cross-checked against the Swift

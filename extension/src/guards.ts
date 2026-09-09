@@ -35,6 +35,23 @@ export function binaryPermissionRefusal(
   return undefined;
 }
 
+/** How many times the helper may be restarted before giving up. */
+export const maxRestartAttempts = 5;
+
+/**
+ * Delay before restarting the helper after it exits, in milliseconds.
+ *
+ * The helper can die on input its formatter cannot parse — an evaluation-only JSON formatter
+ * raises unhandled reader exceptions on malformed or deeply nested payloads. Nothing reachable
+ * sends such input today, since only this extension writes frames, but a helper that stays dead
+ * leaves a stale status bar until the window is reloaded. Backoff bounds the damage if it starts
+ * crash-looping for a reason we did not anticipate.
+ */
+export function restartDelayMs(attempt: number): number {
+  const clamped = Math.max(1, Math.min(attempt, maxRestartAttempts));
+  return 1_000 * 2 ** (clamped - 1);
+}
+
 /** Compact token count for a status bar, which has very little room. */
 export function formatTokens(total: number): string {
   if (!Number.isFinite(total) || total < 0) {

@@ -20,12 +20,18 @@ export class SidecarError extends Error {}
  * with an argument array and no shell, so nothing is word-split or expanded.
  */
 export class Sidecar {
+  private isDisposed = false;
+
   private constructor(
     private readonly process: ChildProcess,
     readonly connection: MessageConnection,
   ) {}
 
-  static async start(extensionPath: string, onStderr: (line: string) => void): Promise<Sidecar> {
+  static async start(
+    extensionPath: string,
+    onStderr: (line: string) => void,
+    onExit?: (code: number | null) => void,
+  ): Promise<Sidecar> {
     const executable = await Sidecar.locate(extensionPath);
 
     const child = spawn(executable, [], {
@@ -58,10 +64,25 @@ export class Sidecar {
     );
     connection.listen();
 
-    return new Sidecar(child, connection);
+    const sidecar = new Sidecar(child, connection);
+    child.once('exit', (code) => {
+      if (!sidecar.disposed) {
+        onExit?.(code);
+      }
+    });
+
+    // Writing to a dead child otherwise surfaces as an unhandled EOF error event.
+    child.stdin.on('error', () => {});
+
+    return sidecar;
+  }
+
+  get disposed(): boolean {
+    return this.isDisposed;
   }
 
   dispose(): void {
+    this.isDisposed = true;
     this.connection.dispose();
     this.process.kill();
   }

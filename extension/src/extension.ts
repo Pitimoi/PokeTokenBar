@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { formatTokens, mayStartHelper } from './guards';
+import { formatTokens, maxRestartAttempts, mayStartHelper, restartDelayMs } from './guards';
 import { GetInfo, GetUsage, ScanReport, UsageResponse, UsageTotals } from './protocol';
 import { Sidecar, SidecarError } from './sidecar';
 
@@ -8,6 +8,9 @@ let statusItem: vscode.StatusBarItem;
 let output: vscode.LogOutputChannel;
 let timer: NodeJS.Timeout | undefined;
 let lastScan: ScanReport | undefined;
+let restartAttempts = 0;
+let restartTimer: NodeJS.Timeout | undefined;
+let stopped = false;
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   output = vscode.window.createOutputChannel('PokeTokenBar', { log: true });
@@ -46,7 +49,11 @@ async function start(context: vscode.ExtensionContext): Promise<void> {
   statusItem.show();
 
   try {
-    sidecar = await Sidecar.start(context.extensionPath, (line) => output.warn(`helper: ${line}`));
+    sidecar = await Sidecar.start(
+      context.extensionPath,
+      (line) => output.warn(`helper: ${line}`),
+      (code) => onHelperExit(context, code),
+    );
   } catch (error) {
     const message = error instanceof SidecarError ? error.message : String(error);
     output.error(message);
@@ -67,6 +74,7 @@ async function start(context: vscode.ExtensionContext): Promise<void> {
     output.error(`handshake failed: ${String(error)}`);
   }
 
+  restartAttempts = 0;
   await refresh();
   scheduleRefresh();
 }
@@ -158,10 +166,47 @@ function showDiagnostics(): void {
   output.show(true);
 }
 
-function stop(): void {
+/**
+ * Restarts the helper after an unexpected exit, with backoff and a hard attempt cap. The helper
+ * is a plain child process: it can be killed, run out of memory, or die on input its formatter
+ * cannot parse, and none of those should leave a stale number on screen forever.
+ */
+function onHelperExit(context: vscode.ExtensionContext, code: number | null): void {
+  if (stopped) {
+    return;
+  }
+
+  sidecar = undefined;
   if (timer) {
     clearInterval(timer);
     timer = undefined;
+  }
+
+  restartAttempts += 1;
+  if (restartAttempts > maxRestartAttempts) {
+    output.error(`helper exited (code ${code ?? 'null'}); giving up after ${maxRestartAttempts} restarts`);
+    statusItem.text = '$(error) Usage';
+    statusItem.tooltip = 'PokeTokenBar helper keeps exiting; see the PokeTokenBar output channel.';
+    return;
+  }
+
+  const delay = restartDelayMs(restartAttempts);
+  output.warn(`helper exited (code ${code ?? 'null'}); restarting in ${delay} ms (attempt ${restartAttempts})`);
+  statusItem.text = '$(sync~spin) Usage';
+  restartTimer = setTimeout(() => void start(context), delay);
+}
+
+function stop(): void {
+  stopped = true;
+
+  if (timer) {
+    clearInterval(timer);
+    timer = undefined;
+  }
+
+  if (restartTimer) {
+    clearTimeout(restartTimer);
+    restartTimer = undefined;
   }
 
   sidecar?.dispose();
