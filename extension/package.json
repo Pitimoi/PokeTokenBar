@@ -1,0 +1,63 @@
+{
+  "name": "poketokenbar",
+  "displayName": "PokeTokenBar",
+  "description": "AI coding tool usage in your status bar",
+  "version": "0.1.0",
+  "private": true,
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "main": "./out/extension.js",
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": "limited",
+      "description": "The usage helper process is started only in trusted workspaces, since an untrusted folder can contribute configuration."
+    }
+  },
+  "contributes": {
+    "commands": [
+      {
+        "command": "poketokenbar.refresh",
+        "title": "PokeTokenBar: Refresh usage"
+      },
+      {
+        "command": "poketokenbar.showDiagnostics",
+        "title": "PokeTokenBar: Show scan diagnostics"
+      }
+    ],
+    "configuration": {
+      "title": "PokeTokenBar",
+      "properties": {
+        "poketokenbar.refreshIntervalSeconds": {
+          "type": "number",
+          "default": 300,
+          "minimum": 30,
+          "maximum": 3600,
+          "scope": "window",
+          "markdownDescription": "How often to refresh usage. There is deliberately **no setting for the helper executable path**: a folder you open can contribute configuration, so such a setting would let a repository choose what this extension runs."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "copy-sidecar": "node scripts/copy-sidecar.mjs",
+    "dev": "npm run copy-sidecar && npm run compile"
+  },
+  "dependencies": {
+    "vscode-jsonrpc": "^8.2.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "@types/vscode": "^1.90.0",
+    "typescript": "^5.7.2"
+  }
+}

@@ -19,6 +19,8 @@ node_modules/
 *.vsix
 extension/out/
 extension/dist/
+# Staged sidecar binaries — built per platform, never committed
+extension/server/
 
 # macOS
 .DS_Store
