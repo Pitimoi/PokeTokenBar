@@ -9,6 +9,17 @@ build/
 # OMC / agent local state
 .omc/
 
+# .NET (C# port)
+bin/
+obj/
+*.user
+
+# VS Code extension (C# port host)
+node_modules/
+*.vsix
+extension/out/
+extension/dist/
+
 # macOS
 .DS_Store
 *.xcuserstate
