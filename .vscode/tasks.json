@@ -1,0 +1,35 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      // Builds the sidecar, then compiles the extension and stages the binary into
+      // extension/server. Staging is required, not optional: the extension resolves its
+      // executable from its own install directory and never from a setting.
+      "label": "build: sidecar + extension",
+      "type": "shell",
+      "command": "dotnet build -c Release dotnet/PokeTokenBar.slnx && npm --prefix extension install --no-audit --no-fund && npm --prefix extension run dev",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": ["$tsc", "$msCompile"],
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "presentation": {
+        "reveal": "silent",
+        "panel": "shared"
+      }
+    },
+    {
+      "label": "test: all",
+      "type": "shell",
+      "command": "dotnet test dotnet/PokeTokenBar.slnx && npm --prefix extension test",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": ["$tsc", "$msCompile"],
+      "group": "test"
+    }
+  ]
+}

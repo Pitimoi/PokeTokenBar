@@ -1,0 +1,15 @@
+{
+  // For opening extension/ directly as the folder. The copy at the repo root handles the
+  // other case, where the worktree root is open and this is a subfolder.
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Run PokeTokenBar extension",
+      "type": "extensionHost",
+      "request": "launch",
+      "args": ["--extensionDevelopmentPath=${workspaceFolder}", "--disable-extensions"],
+      "outFiles": ["${workspaceFolder}/out/**/*.js"],
+      "preLaunchTask": "build: sidecar + extension"
+    }
+  ]
+}

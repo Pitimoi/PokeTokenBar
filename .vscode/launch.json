@@ -1,0 +1,27 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      // F5 from this folder. The extension lives in extension/, so the extension host has to
+      // be pointed at it — opening this folder alone looks like a Swift package to VS Code.
+      "name": "Run PokeTokenBar extension",
+      "type": "extensionHost",
+      "request": "launch",
+      "args": [
+        "--extensionDevelopmentPath=${workspaceFolder}/extension",
+        "--disable-extensions"
+      ],
+      "outFiles": ["${workspaceFolder}/extension/out/**/*.js"],
+      "preLaunchTask": "build: sidecar + extension"
+    },
+    {
+      // Same, but with your other extensions left enabled, for checking status bar crowding.
+      "name": "Run PokeTokenBar extension (keep other extensions)",
+      "type": "extensionHost",
+      "request": "launch",
+      "args": ["--extensionDevelopmentPath=${workspaceFolder}/extension"],
+      "outFiles": ["${workspaceFolder}/extension/out/**/*.js"],
+      "preLaunchTask": "build: sidecar + extension"
+    }
+  ]
+}
