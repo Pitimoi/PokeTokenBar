@@ -47,11 +47,14 @@
     }
   },
   "scripts": {
+    "build:sidecar": "dotnet build -c Release ../dotnet/PokeTokenBar.slnx",
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
     "copy-sidecar": "node scripts/copy-sidecar.mjs",
     "dev": "npm run copy-sidecar && npm run compile",
-    "test": "npm run compile && node --test test/*.test.mjs"
+    "build:all": "npm run build:sidecar && npm run dev",
+    "test": "npm run compile && node --test test/*.test.mjs",
+    "test:all": "npm run build:sidecar && dotnet test ../dotnet/PokeTokenBar.slnx && npm test"
   },
   "dependencies": {
     "vscode-jsonrpc": "^8.2.1"

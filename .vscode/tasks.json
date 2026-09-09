@@ -1,67 +1,38 @@
 {
-  // No shell chaining anywhere in here. VS Code shell tasks default to Windows PowerShell 5.1
-  // when pwsh is absent, and `&&` is a parse error there, so a chained command fails before it
-  // runs anything and F5 aborts with nothing useful on screen. Sequencing is expressed with
-  // dependsOn instead, which is shell-agnostic.
+  // One step, and the chaining lives in an npm script rather than here. VS Code shell tasks
+  // fall back to Windows PowerShell 5.1 when pwsh is absent, where `&&` is a parse error;
+  // npm runs its scripts through cmd.exe, where it works. Output is revealed, because a build
+  // task that shows nothing is indistinguishable from one that did not run.
   "version": "2.0.0",
   "tasks": [
     {
       "label": "build: sidecar + extension",
-      "dependsOrder": "sequence",
-      "dependsOn": ["npm: install", "dotnet: build sidecar", "npm: stage and compile"],
-      "problemMatcher": [],
-      "group": {
-        "kind": "build",
-        "isDefault": true
-      }
+      "type": "shell",
+      "command": "npm",
+      "args": ["run", "build:all"],
+      "options": { "cwd": "${workspaceFolder}/extension" },
+      "problemMatcher": ["$tsc", "$msCompile"],
+      "group": { "kind": "build", "isDefault": true },
+      "presentation": { "reveal": "always", "panel": "shared", "clear": true }
     },
     {
-      "label": "npm: install",
+      "label": "install: extension dependencies",
       "type": "shell",
       "command": "npm",
       "args": ["install", "--no-audit", "--no-fund"],
       "options": { "cwd": "${workspaceFolder}/extension" },
       "problemMatcher": [],
-      "presentation": { "reveal": "silent", "panel": "shared" }
+      "presentation": { "reveal": "always", "panel": "shared" }
     },
     {
-      "label": "dotnet: build sidecar",
-      "type": "shell",
-      "command": "dotnet",
-      "args": ["build", "-c", "Release", "${workspaceFolder}/dotnet/PokeTokenBar.slnx"],
-      "options": { "cwd": "${workspaceFolder}" },
-      "problemMatcher": ["$msCompile"],
-      "presentation": { "reveal": "silent", "panel": "shared" }
-    },
-    {
-      // Stages the sidecar into extension/server, then compiles TypeScript. Staging is
-      // required: the extension resolves its executable from its own install directory and
-      // never from a setting.
-      "label": "npm: stage and compile",
+      "label": "test: all",
       "type": "shell",
       "command": "npm",
-      "args": ["run", "dev"],
+      "args": ["run", "test:all"],
       "options": { "cwd": "${workspaceFolder}/extension" },
-      "problemMatcher": ["$tsc"],
-      "presentation": { "reveal": "silent", "panel": "shared" }
-    },
-    {
-      "label": "test: dotnet",
-      "type": "shell",
-      "command": "dotnet",
-      "args": ["test", "${workspaceFolder}/dotnet/PokeTokenBar.slnx"],
-      "options": { "cwd": "${workspaceFolder}" },
-      "problemMatcher": ["$msCompile"],
-      "group": "test"
-    },
-    {
-      "label": "test: extension",
-      "type": "shell",
-      "command": "npm",
-      "args": ["test"],
-      "options": { "cwd": "${workspaceFolder}/extension" },
-      "problemMatcher": ["$tsc"],
-      "group": "test"
+      "problemMatcher": ["$tsc", "$msCompile"],
+      "group": { "kind": "test", "isDefault": true },
+      "presentation": { "reveal": "always", "panel": "shared", "clear": true }
     }
   ]
 }

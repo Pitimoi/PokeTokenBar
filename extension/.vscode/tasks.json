@@ -1,44 +1,27 @@
 {
-  // For opening extension/ directly. No shell chaining: VS Code falls back to Windows
-  // PowerShell 5.1 when pwsh is absent, where `&&` is a parse error.
+  // For opening extension/ directly. See the copy at the repository root for why the chaining
+  // lives in an npm script rather than in the task command.
   "version": "2.0.0",
   "tasks": [
     {
       "label": "build: sidecar + extension",
-      "dependsOrder": "sequence",
-      "dependsOn": ["npm: install", "dotnet: build sidecar", "npm: stage and compile"],
-      "problemMatcher": [],
-      "group": {
-        "kind": "build",
-        "isDefault": true
-      }
-    },
-    {
-      "label": "npm: install",
       "type": "shell",
       "command": "npm",
-      "args": ["install", "--no-audit", "--no-fund"],
+      "args": ["run", "build:all"],
       "options": { "cwd": "${workspaceFolder}" },
-      "problemMatcher": [],
-      "presentation": { "reveal": "silent", "panel": "shared" }
+      "problemMatcher": ["$tsc", "$msCompile"],
+      "group": { "kind": "build", "isDefault": true },
+      "presentation": { "reveal": "always", "panel": "shared", "clear": true }
     },
     {
-      "label": "dotnet: build sidecar",
-      "type": "shell",
-      "command": "dotnet",
-      "args": ["build", "-c", "Release", "${workspaceFolder}/../dotnet/PokeTokenBar.slnx"],
-      "options": { "cwd": "${workspaceFolder}" },
-      "problemMatcher": ["$msCompile"],
-      "presentation": { "reveal": "silent", "panel": "shared" }
-    },
-    {
-      "label": "npm: stage and compile",
+      "label": "test: all",
       "type": "shell",
       "command": "npm",
-      "args": ["run", "dev"],
+      "args": ["run", "test:all"],
       "options": { "cwd": "${workspaceFolder}" },
-      "problemMatcher": ["$tsc"],
-      "presentation": { "reveal": "silent", "panel": "shared" }
+      "problemMatcher": ["$tsc", "$msCompile"],
+      "group": { "kind": "test", "isDefault": true },
+      "presentation": { "reveal": "always", "panel": "shared", "clear": true }
     }
   ]
 }
