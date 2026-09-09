@@ -1,14 +1,14 @@
 using System.Buffers;
+using System.IO.Pipelines;
 
 namespace PokeTokenBar.Core.Io;
 
 /// <summary>Receives one JSONL line as raw UTF-8, without its terminator.</summary>
 /// <remarks>
-/// Only valid for the duration of the call — it points into a pooled buffer that is reused
-/// for the next line. Copy anything that needs to outlive the callback, and do not park the
-/// memory in a field or a captured closure.
+/// Valid only for the duration of the call — it points into pooled pipe buffers that are
+/// recycled for the next line. Copy anything that needs to outlive the callback.
 /// </remarks>
-public delegate void JsonlLineHandler(ReadOnlyMemory<byte> line);
+public delegate void JsonlLineHandler(ReadOnlySequence<byte> line);
 
 /// <summary>Outcome of a single file scan. Counts are for diagnostics and tests.</summary>
 public sealed record JsonlScanResult
@@ -30,12 +30,18 @@ public static class JsonlFileScanner
 {
     private const int ReadChunkBytes = 64 * 1024;
 
+    private static readonly JsonlScanResult Skipped = new() { FileSkipped = true };
+
     /// <summary>
-    /// Invokes <paramref name="onLine"/> for each line, never holding more than one line
-    /// plus a fixed read chunk in memory. Unreadable files are skipped rather than thrown,
-    /// because a transcript can be deleted or rotated mid-scan.
+    /// Invokes <paramref name="onLine"/> for each line, never retaining more than one line
+    /// plus a read chunk. Unreadable files are skipped rather than thrown, because a
+    /// transcript can be rotated or deleted mid-scan.
     /// </summary>
-    public static JsonlScanResult Scan(string path, JsonlLineHandler onLine, JsonlReadLimits? limits = null)
+    public static async ValueTask<JsonlScanResult> ScanAsync(
+        string path,
+        JsonlLineHandler onLine,
+        JsonlReadLimits? limits = null,
+        CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(path);
         ArgumentNullException.ThrowIfNull(onLine);
@@ -44,171 +50,144 @@ public static class JsonlFileScanner
         FileStream stream;
         try
         {
-            // ReadWrite | Delete: these transcripts are appended to live by the tool that owns
-            // them, so an exclusive open fails against the very files we most want to read.
             stream = new FileStream(path, new FileStreamOptions
             {
                 Mode = FileMode.Open,
                 Access = FileAccess.Read,
+                // The owning tool holds its transcript open for append, so an exclusive open
+                // fails on exactly the newest and most interesting files.
                 Share = FileShare.ReadWrite | FileShare.Delete,
                 Options = FileOptions.SequentialScan,
-                BufferSize = ReadChunkBytes,
             });
         }
         catch (IOException)
         {
-            return new JsonlScanResult { FileSkipped = true };
+            return Skipped;
         }
         catch (UnauthorizedAccessException)
         {
-            return new JsonlScanResult { FileSkipped = true };
+            return Skipped;
         }
 
-        using (stream)
+        await using (stream.ConfigureAwait(false))
         {
             if (stream.Length > limits.MaxFileBytes)
             {
-                return new JsonlScanResult { FileSkipped = true };
+                return Skipped;
             }
 
-            return ScanStream(stream, onLine, limits);
+            return await ReadLinesAsync(stream, onLine, limits, cancellationToken).ConfigureAwait(false);
         }
     }
 
-    private static JsonlScanResult ScanStream(Stream stream, JsonlLineHandler onLine, JsonlReadLimits limits)
+    private static async ValueTask<JsonlScanResult> ReadLinesAsync(
+        Stream stream,
+        JsonlLineHandler onLine,
+        JsonlReadLimits limits,
+        CancellationToken cancellationToken)
     {
-        var chunk = ArrayPool<byte>.Shared.Rent(ReadChunkBytes);
-        using var line = new LineAccumulator(limits.MaxLineBytes);
+        var reader = PipeReader.Create(
+            stream,
+            new StreamPipeReaderOptions(bufferSize: ReadChunkBytes, leaveOpen: true));
+
         long delivered = 0;
         long tooLong = 0;
+        var discarding = false;
 
         try
         {
-            int read;
-            while ((read = stream.Read(chunk, 0, ReadChunkBytes)) > 0)
+            while (true)
             {
-                var remaining = chunk.AsSpan(0, read);
-                while (!remaining.IsEmpty)
+                var read = await reader.ReadAsync(cancellationToken).ConfigureAwait(false);
+                var buffer = read.Buffer;
+
+                while (TrySliceLine(ref buffer, out var line))
                 {
-                    var newline = remaining.IndexOf((byte)'\n');
-                    if (newline < 0)
+                    if (discarding)
                     {
-                        line.Append(remaining);
-                        break;
+                        // This terminator ends the line we gave up on, it does not start one.
+                        discarding = false;
+                        tooLong++;
+                        continue;
                     }
 
-                    line.Append(remaining[..newline]);
-                    Deliver(line, onLine, ref delivered, ref tooLong);
-                    remaining = remaining[(newline + 1)..];
-                }
-            }
+                    // A small file arrives in a single read, so an oversized line can be
+                    // fully terminated before the pending-remainder check below ever runs.
+                    if (line.Length > limits.MaxLineBytes)
+                    {
+                        tooLong++;
+                        continue;
+                    }
 
-            // Trailing line with no terminator — a live-appended file usually ends this way.
-            if (!line.IsEmpty)
-            {
-                Deliver(line, onLine, ref delivered, ref tooLong);
+                    if (!line.IsEmpty)
+                    {
+                        onLine(line);
+                        delivered++;
+                    }
+                }
+
+                // Nothing terminated in the remainder. Once it passes the cap it can never
+                // become a deliverable line, so drop it rather than let the pipe grow it.
+                if (discarding || buffer.Length > limits.MaxLineBytes)
+                {
+                    discarding = true;
+                    buffer = buffer.Slice(buffer.End);
+                }
+
+                if (read.IsCompleted)
+                {
+                    if (discarding)
+                    {
+                        tooLong++;
+                    }
+                    else if (!buffer.IsEmpty)
+                    {
+                        // A live-appended transcript routinely ends mid-line.
+                        var trailing = TrimCarriageReturn(buffer);
+                        if (!trailing.IsEmpty)
+                        {
+                            onLine(trailing);
+                            delivered++;
+                        }
+                    }
+
+                    reader.AdvanceTo(buffer.End);
+                    break;
+                }
+
+                reader.AdvanceTo(buffer.Start, buffer.End);
             }
         }
         finally
         {
-            ArrayPool<byte>.Shared.Return(chunk);
+            await reader.CompleteAsync().ConfigureAwait(false);
         }
 
         return new JsonlScanResult { LinesDelivered = delivered, LinesTooLong = tooLong };
     }
 
-    private static void Deliver(LineAccumulator line, JsonlLineHandler onLine, ref long delivered, ref long tooLong)
+    private static bool TrySliceLine(ref ReadOnlySequence<byte> buffer, out ReadOnlySequence<byte> line)
     {
-        if (line.Overflowed)
+        var newline = buffer.PositionOf((byte)'\n');
+        if (newline is null)
         {
-            tooLong++;
-        }
-        else
-        {
-            var content = line.Content;
-            if (!content.IsEmpty)
-            {
-                onLine(content);
-                delivered++;
-            }
+            line = default;
+            return false;
         }
 
-        line.Reset();
+        line = TrimCarriageReturn(buffer.Slice(0, newline.Value));
+        buffer = buffer.Slice(buffer.GetPosition(1, newline.Value));
+        return true;
     }
 
-    /// <summary>
-    /// Grows up to a ceiling, then latches into an overflowed state and stops retaining
-    /// bytes — so an oversized line costs the cap, not the line's true length.
-    /// </summary>
-    private sealed class LineAccumulator : IDisposable
+    private static ReadOnlySequence<byte> TrimCarriageReturn(ReadOnlySequence<byte> line)
     {
-        private readonly int _maxBytes;
-        private byte[] _buffer;
-        private int _length;
-
-        public LineAccumulator(int maxBytes)
+        if (line.IsEmpty)
         {
-            _maxBytes = maxBytes;
-            _buffer = ArrayPool<byte>.Shared.Rent(Math.Min(ReadChunkBytes, maxBytes));
+            return line;
         }
 
-        public bool Overflowed { get; private set; }
-
-        public bool IsEmpty => _length == 0 && !Overflowed;
-
-        /// <summary>The line without its terminator, with a trailing CR removed.</summary>
-        public ReadOnlyMemory<byte> Content
-        {
-            get
-            {
-                var end = _length;
-                if (end > 0 && _buffer[end - 1] == (byte)'\r')
-                {
-                    end--;
-                }
-
-                return _buffer.AsMemory(0, end);
-            }
-        }
-
-        public void Append(ReadOnlySpan<byte> part)
-        {
-            if (Overflowed || part.IsEmpty)
-            {
-                return;
-            }
-
-            if (_length + part.Length > _maxBytes)
-            {
-                Overflowed = true;
-                _length = 0;
-                return;
-            }
-
-            EnsureCapacity(_length + part.Length);
-            part.CopyTo(_buffer.AsSpan(_length));
-            _length += part.Length;
-        }
-
-        public void Reset()
-        {
-            _length = 0;
-            Overflowed = false;
-        }
-
-        public void Dispose() => ArrayPool<byte>.Shared.Return(_buffer);
-
-        private void EnsureCapacity(int required)
-        {
-            if (_buffer.Length >= required)
-            {
-                return;
-            }
-
-            var grown = ArrayPool<byte>.Shared.Rent(Math.Min(Math.Max(required, _buffer.Length * 2), _maxBytes));
-            _buffer.AsSpan(0, _length).CopyTo(grown);
-            ArrayPool<byte>.Shared.Return(_buffer);
-            _buffer = grown;
-        }
+        var last = line.Slice(line.Length - 1);
+        return last.FirstSpan[0] == (byte)'\r' ? line.Slice(0, line.Length - 1) : line;
     }
 }

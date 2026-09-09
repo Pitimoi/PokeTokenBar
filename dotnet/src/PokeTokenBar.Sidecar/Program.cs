@@ -1,7 +1,7 @@
 using PokeTokenBar.Core.Usage;
 
-// Temporary parity harness, replaced by the stdio protocol host in the next milestone.
-// Note the real protocol never accepts a path from its caller — see invariant 3 in README.
+// Temporary parity harness, replaced by the stdio protocol host next. The real protocol
+// accepts no paths from its caller — see invariant 3 in dotnet/README.md.
 if (args.Length == 0)
 {
     Console.Error.WriteLine("usage: PokeTokenBar.Sidecar <transcript.jsonl|directory>");
@@ -10,8 +10,8 @@ if (args.Length == 0)
 
 var target = args[0];
 var scan = Directory.Exists(target)
-    ? ClaudeTranscriptReader.ReadDirectory(target)
-    : ClaudeTranscriptReader.ReadFile(target);
+    ? await ClaudeTranscriptReader.ReadDirectoryAsync(target)
+    : await ClaudeTranscriptReader.ReadFileAsync(target);
 
 long input = 0, output = 0, cacheWrite = 0, cacheRead = 0;
 foreach (var entry in scan.Entries)

@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Globalization;
 using System.Text.Json;
 using PokeTokenBar.Core.Io;
@@ -13,7 +14,7 @@ public sealed record TranscriptScanStats
 
     public long LinesTooLong { get; init; }
 
-    /// <summary>Lines that looked like usage but failed validation — bad numbers or timestamps.</summary>
+    /// <summary>Lines that advertised usage but failed validation — bad numbers or timestamps.</summary>
     public long EntriesRejected { get; init; }
 
     /// <summary>Duplicate turns collapsed by the deduplication key.</summary>
@@ -45,23 +46,30 @@ public static class ClaudeTranscriptReader
     /// Deduplication is global across files, not per file: the same turn appears in more than
     /// one root when worktrees or Desktop sessions are in play.
     /// </remarks>
-    public static TranscriptScan ReadDirectory(
+    public static ValueTask<TranscriptScan> ReadDirectoryAsync(
         string root,
         DateTimeOffset? modifiedSince = null,
-        JsonlReadLimits? limits = null)
+        JsonlReadLimits? limits = null,
+        CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(root);
-        return ReadFiles(EnumerateTranscripts(root, modifiedSince), limits);
+        return ReadFilesAsync(EnumerateTranscripts(root, modifiedSince), limits, cancellationToken);
     }
 
     /// <summary>Reads a single transcript. Deduplication still applies within the file.</summary>
-    public static TranscriptScan ReadFile(string path, JsonlReadLimits? limits = null)
+    public static ValueTask<TranscriptScan> ReadFileAsync(
+        string path,
+        JsonlReadLimits? limits = null,
+        CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(path);
-        return ReadFiles([path], limits);
+        return ReadFilesAsync([path], limits, cancellationToken);
     }
 
-    private static TranscriptScan ReadFiles(IEnumerable<string> files, JsonlReadLimits? limits)
+    private static async ValueTask<TranscriptScan> ReadFilesAsync(
+        IEnumerable<string> files,
+        JsonlReadLimits? limits,
+        CancellationToken cancellationToken)
     {
         var deduped = new Dictionary<string, UsageEntry>(StringComparer.Ordinal);
         var scanned = 0;
@@ -72,25 +80,29 @@ public static class ClaudeTranscriptReader
 
         foreach (var file in files)
         {
-            var result = JsonlFileScanner.Scan(file, line =>
-            {
-                if (!TryParseLine(line, out var entry))
+            var result = await JsonlFileScanner.ScanAsync(
+                file,
+                line =>
                 {
-                    // Only lines that advertised usage and then failed validation are
-                    // rejections; the rest are ordinary non-usage records.
-                    if (LooksLikeUsage(line))
+                    if (!TryParseLine(line, out var entry))
                     {
-                        rejected++;
+                        // Only lines that advertised usage and then failed validation are
+                        // rejections; the rest are ordinary non-usage records.
+                        if (LooksLikeUsage(line))
+                        {
+                            rejected++;
+                        }
+
+                        return;
                     }
 
-                    return;
-                }
-
-                if (KeepLarger(deduped, entry))
-                {
-                    duplicates++;
-                }
-            }, limits);
+                    if (KeepLarger(deduped, entry))
+                    {
+                        duplicates++;
+                    }
+                },
+                limits,
+                cancellationToken).ConfigureAwait(false);
 
             if (result.FileSkipped)
             {
@@ -139,13 +151,31 @@ public static class ClaudeTranscriptReader
         return true;
     }
 
-    private static bool LooksLikeUsage(ReadOnlyMemory<byte> line)
+    private static bool LooksLikeUsage(ReadOnlySequence<byte> line)
     {
-        var span = line.Span;
-        return span.IndexOf(UsageMarker) >= 0 && span.IndexOf(AssistantMarker) >= 0;
+        if (line.IsSingleSegment)
+        {
+            return HasBothMarkers(line.FirstSpan);
+        }
+
+        // A line straddling two pipe segments has to be flattened before searching.
+        var length = checked((int)line.Length);
+        var rented = ArrayPool<byte>.Shared.Rent(length);
+        try
+        {
+            line.CopyTo(rented);
+            return HasBothMarkers(rented.AsSpan(0, length));
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(rented);
+        }
     }
 
-    private static bool TryParseLine(ReadOnlyMemory<byte> line, out UsageEntry entry)
+    private static bool HasBothMarkers(ReadOnlySpan<byte> span) =>
+        span.IndexOf(UsageMarker) >= 0 && span.IndexOf(AssistantMarker) >= 0;
+
+    private static bool TryParseLine(ReadOnlySequence<byte> line, out UsageEntry entry)
     {
         entry = null!;
 
@@ -229,8 +259,8 @@ public static class ClaudeTranscriptReader
             out when);
 
     /// <summary>
-    /// Buckets by local calendar day, matching the original. Timestamps are logged in UTC, so
-    /// converting is what makes "today" mean the user's today rather than UTC's.
+    /// Buckets by local calendar day. Timestamps are logged in UTC, so converting is what
+    /// makes "today" mean the user's today rather than UTC's.
     /// </summary>
     private static string LocalDayOf(DateTimeOffset when) =>
         when.ToLocalTime().ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
