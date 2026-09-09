@@ -1,22 +1,44 @@
 {
+  // For opening extension/ directly. No shell chaining: VS Code falls back to Windows
+  // PowerShell 5.1 when pwsh is absent, where `&&` is a parse error.
   "version": "2.0.0",
   "tasks": [
     {
       "label": "build: sidecar + extension",
-      "type": "shell",
-      "command": "dotnet build -c Release ../dotnet/PokeTokenBar.slnx && npm install --no-audit --no-fund && npm run dev",
-      "options": {
-        "cwd": "${workspaceFolder}"
-      },
-      "problemMatcher": ["$tsc", "$msCompile"],
+      "dependsOrder": "sequence",
+      "dependsOn": ["npm: install", "dotnet: build sidecar", "npm: stage and compile"],
+      "problemMatcher": [],
       "group": {
         "kind": "build",
         "isDefault": true
-      },
-      "presentation": {
-        "reveal": "silent",
-        "panel": "shared"
       }
+    },
+    {
+      "label": "npm: install",
+      "type": "shell",
+      "command": "npm",
+      "args": ["install", "--no-audit", "--no-fund"],
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": [],
+      "presentation": { "reveal": "silent", "panel": "shared" }
+    },
+    {
+      "label": "dotnet: build sidecar",
+      "type": "shell",
+      "command": "dotnet",
+      "args": ["build", "-c", "Release", "${workspaceFolder}/../dotnet/PokeTokenBar.slnx"],
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": ["$msCompile"],
+      "presentation": { "reveal": "silent", "panel": "shared" }
+    },
+    {
+      "label": "npm: stage and compile",
+      "type": "shell",
+      "command": "npm",
+      "args": ["run", "dev"],
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": ["$tsc"],
+      "presentation": { "reveal": "silent", "panel": "shared" }
     }
   ]
 }
