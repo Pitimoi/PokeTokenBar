@@ -52,6 +52,33 @@ export function restartDelayMs(attempt: number): number {
   return 1_000 * 2 ** (clamped - 1);
 }
 
+/**
+ * Escapes text for interpolation into webview HTML.
+ *
+ * Values reaching the webview originate in logs written by other tools, so they are untrusted
+ * even after the sidecar sanitises them. This is the second of two independent guards; neither
+ * is the only thing standing between a crafted transcript and the extension host.
+ */
+export function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+/**
+ * Whether a sprite filename is one the sidecar's cache could have produced.
+ *
+ * Mirrors the check on the sidecar side deliberately. The filename is joined to a directory to
+ * build a webview resource URI, so accepting anything else would be a path escape — and a
+ * guard that exists on only one side of a boundary protects only one side of it.
+ */
+export function isSpriteFileName(fileName: string | null | undefined): boolean {
+  return typeof fileName === 'string' && /^[0-9]{1,4}-(sh)?[as]\.(png|gif)$/.test(fileName);
+}
+
 /** Compact token count for a status bar, which has very little room. */
 export function formatTokens(total: number): string {
   if (!Number.isFinite(total) || total < 0) {

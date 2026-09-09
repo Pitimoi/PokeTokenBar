@@ -40,10 +40,33 @@ export interface ScanReport {
   readonly degraded: boolean;
 }
 
+export interface CompanionInfo {
+  readonly speciesId: number;
+  readonly stageIndex: number;
+  readonly totalForms: number;
+  /** Progress through the current form, 0 to 1. */
+  readonly stageProgress: number;
+  readonly tokensAtStage: number;
+  readonly stageThreshold: number;
+  readonly rarity: string;
+  readonly reachedForms: readonly number[];
+  readonly justEvolved: readonly number[];
+  readonly justGraduated: number | null;
+  readonly graduatedCount: number;
+  /**
+   * Cache-relative filename, never a URL and never a path. Validate it with
+   * `isSpriteFileName` before joining it to `spriteDirectory` — the sidecar should only ever
+   * send a name it generated, and a guard on one side of a boundary protects one side of it.
+   */
+  readonly spriteFileName: string | null;
+  readonly spriteDirectory: string;
+}
+
 export interface UsageResponse {
   readonly today: UsageTotals;
   readonly week: UsageTotals;
   readonly month: UsageTotals;
+  readonly companion: CompanionInfo;
   readonly scan: ScanReport;
 }
 

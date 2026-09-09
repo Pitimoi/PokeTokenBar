@@ -15,6 +15,12 @@ public sealed record UsageResponse
     public required UsageTotals Month { get; init; }
 
     /// <summary>
+    /// The companion, advanced by this refresh. Part of the same response because it is derived
+    /// from the same scan — a separate call would rescan every transcript to learn one number.
+    /// </summary>
+    public required CompanionResponse Companion { get; init; }
+
+    /// <summary>
     /// What the scan did and did not manage to read. Surfaced rather than swallowed so a host
     /// can show that a number is incomplete instead of quietly under-reporting.
     /// </summary>

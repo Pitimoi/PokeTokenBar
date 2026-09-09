@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { formatTokens, maxRestartAttempts, mayStartHelper, restartDelayMs } from './guards';
 import { GetInfo, GetUsage, ScanReport, UsageResponse, UsageTotals } from './protocol';
+import { CompanionViewProvider } from './companionView';
 import { Sidecar, SidecarError } from './sidecar';
 
 let sidecar: Sidecar | undefined;
@@ -11,6 +12,7 @@ let lastScan: ScanReport | undefined;
 let restartAttempts = 0;
 let restartTimer: NodeJS.Timeout | undefined;
 let stopped = false;
+let companionView: CompanionViewProvider;
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   output = vscode.window.createOutputChannel('PokeTokenBar', { log: true });
@@ -23,7 +25,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   statusItem.command = 'poketokenbar.refresh';
   context.subscriptions.push(output, statusItem);
 
+  companionView = new CompanionViewProvider();
   context.subscriptions.push(
+    vscode.window.registerWebviewViewProvider(CompanionViewProvider.viewType, companionView),
     vscode.commands.registerCommand('poketokenbar.refresh', () => void refresh()),
     vscode.commands.registerCommand('poketokenbar.showDiagnostics', showDiagnostics),
     { dispose: stop },
@@ -134,7 +138,12 @@ function render(response: UsageResponse): void {
   }
 
   statusItem.tooltip = tooltip;
-  output.info(`status bar shows "${statusItem.text}" (today ${today.total} tokens, ${today.models.length} models)`);
+  companionView.update(response);
+  output.info(
+    `status bar shows "${statusItem.text}"; companion #${response.companion.speciesId} ` +
+      `stage ${response.companion.stageIndex + 1}/${response.companion.totalForms} ` +
+      `sprite ${response.companion.spriteFileName ?? "none"}`,
+  );
 }
 
 function appendModels(tooltip: vscode.MarkdownString, totals: UsageTotals): void {

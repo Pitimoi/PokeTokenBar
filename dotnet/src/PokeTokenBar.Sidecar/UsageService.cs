@@ -1,5 +1,7 @@
 using System.Diagnostics;
 using System.Reflection;
+using PokeTokenBar.Core.Companions;
+using PokeTokenBar.Core.Sprites;
 using PokeTokenBar.Core.Usage;
 using PokeTokenBar.Sidecar.Protocol;
 
@@ -7,6 +9,10 @@ namespace PokeTokenBar.Sidecar;
 
 internal sealed class UsageService : IUsageService
 {
+    private readonly CompanionStore _companions = new();
+    private readonly SpriteCache _sprites = new();
+
+
     public async ValueTask<UsageResponse> GetUsageAsync(CancellationToken cancellationToken)
     {
         var now = DateTimeOffset.Now;
@@ -46,11 +52,14 @@ internal sealed class UsageService : IUsageService
             .ToArray();
 
         var today = LocalDay.For(now);
+        var todayTotals = UsageAggregator.ForDay(deduped, today);
+        var companion = await AdvanceCompanionAsync(todayTotals, cancellationToken).ConfigureAwait(false);
         stopwatch.Stop();
 
         return new UsageResponse
         {
-            Today = UsageAggregator.ForDay(deduped, today),
+            Today = todayTotals,
+            Companion = companion,
             Week = UsageAggregator.ForRange(deduped, LocalDay.For(UsagePeriods.StartOfWeek(now)), today),
             Month = UsageAggregator.ForRange(deduped, LocalDay.For(UsagePeriods.StartOfMonth(now)), today),
             Scan = new ScanReport
@@ -75,5 +84,45 @@ internal sealed class UsageService : IUsageService
             Version = version,
             ClaudeTranscriptsPresent = present,
         });
+    }
+
+    private async ValueTask<CompanionResponse> AdvanceCompanionAsync(
+        UsageTotals today,
+        CancellationToken cancellationToken)
+    {
+        var update = CompanionKeeper.Apply(_companions.Load(), today);
+        _companions.Save(update.State);
+
+        var companion = update.State.ToCompanion();
+
+        // Animated where the source has it, static otherwise. A missing sprite is not an error:
+        // the companion still has a species, a stage, and progress to show.
+        var sprite = await _sprites
+            .GetAsync(new SpriteRequest { SpeciesId = companion.CurrentSpeciesId, Animated = true }, cancellationToken)
+            .ConfigureAwait(false);
+
+        if (sprite.FileName is null)
+        {
+            sprite = await _sprites
+                .GetAsync(new SpriteRequest { SpeciesId = companion.CurrentSpeciesId }, cancellationToken)
+                .ConfigureAwait(false);
+        }
+
+        return new CompanionResponse
+        {
+            SpeciesId = companion.CurrentSpeciesId,
+            StageIndex = companion.SafeStageIndex,
+            TotalForms = companion.TotalForms,
+            StageProgress = companion.StageProgress,
+            TokensAtStage = companion.TokensAtStage,
+            StageThreshold = companion.StageThreshold,
+            Rarity = companion.Rarity.ToString(),
+            ReachedForms = companion.ReachedForms,
+            JustEvolved = update.Evolutions,
+            JustGraduated = update.GraduatedSpeciesId,
+            GraduatedCount = update.State.Graduated.Count,
+            SpriteFileName = sprite.FileName,
+            SpriteDirectory = _sprites.Directory,
+        };
     }
 }

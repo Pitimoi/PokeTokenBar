@@ -44,6 +44,24 @@
           "markdownDescription": "How often to refresh usage. There is deliberately **no setting for the helper executable path**: a folder you open can contribute configuration, so such a setting would let a repository choose what this extension runs."
         }
       }
+    },
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "poketokenbar",
+          "title": "PokeTokenBar",
+          "icon": "$(graph)"
+        }
+      ]
+    },
+    "views": {
+      "poketokenbar": [
+        {
+          "type": "webview",
+          "id": "poketokenbar.companion",
+          "name": "Companion"
+        }
+      ]
     }
   },
   "scripts": {

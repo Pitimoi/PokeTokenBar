@@ -15,6 +15,7 @@ namespace PokeTokenBar.Sidecar.Protocol;
 [JsonSerializable(typeof(UsageResponse))]
 [JsonSerializable(typeof(SidecarInfoResponse))]
 [JsonSerializable(typeof(ScanReport))]
+[JsonSerializable(typeof(CompanionResponse))]
 [JsonSerializable(typeof(UsageTotals))]
 [JsonSerializable(typeof(ModelUsage))]
 internal sealed partial class ProtocolJsonContext : JsonSerializerContext;

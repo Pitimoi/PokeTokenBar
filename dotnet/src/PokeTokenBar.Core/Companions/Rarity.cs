@@ -1,8 +1,15 @@
+using System.Text.Json.Serialization;
+
 namespace PokeTokenBar.Core.Companions;
 
 /// <summary>
 /// Species rarity, derived from PokéAPI's <c>capture_rate</c> and legendary flags.
 /// </summary>
+/// <remarks>
+/// Persisted as a string, so inserting a tier or reordering the enum cannot silently reinterpret
+/// every saved companion's rarity — and rarity decides its graduation cost.
+/// </remarks>
+[JsonConverter(typeof(JsonStringEnumConverter<Rarity>))]
 public enum Rarity
 {
     Common,
