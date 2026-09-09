@@ -17,8 +17,8 @@ namespace PokeTokenBar.Sidecar.Protocol;
 [GenerateShape(IncludeMethods = MethodShapeFlags.PublicInstance)]
 public partial interface IUsageService
 {
-    /// <summary>Token usage for the current local day, broken down by model.</summary>
-    ValueTask<TodayUsageResponse> GetTodayUsageAsync(CancellationToken cancellationToken);
+    /// <summary>Token usage and cost for today, this week and this month.</summary>
+    ValueTask<UsageResponse> GetUsageAsync(CancellationToken cancellationToken);
 
     /// <summary>
     /// Sidecar version and whether any transcript root exists, so the host can distinguish

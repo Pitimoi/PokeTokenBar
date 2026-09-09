@@ -74,7 +74,7 @@ public sealed class UsageAggregatorTests
     {
         var day = UsageAggregator.ForDay([], "2026-09-09");
 
-        Assert.Equal("2026-09-09", day.LocalDay);
+        Assert.Equal("2026-09-09", day.FromDay);
         Assert.Equal(0, day.Total);
         Assert.Empty(day.Models);
     }
@@ -91,7 +91,7 @@ public sealed class UsageAggregatorTests
 
         var days = UsageAggregator.ByDay(entries);
 
-        Assert.Equal(["2026-09-10", "2026-09-09", "2026-09-08"], days.Select(d => d.LocalDay));
+        Assert.Equal(["2026-09-10", "2026-09-09", "2026-09-08"], days.Select(d => d.FromDay));
     }
 
     [Fact]
@@ -140,4 +140,79 @@ public sealed class UsageAggregatorTests
             CacheWrite = cacheWrite,
             CacheRead = cacheRead,
         };
+
+    [Fact]
+    public void SumsAcrossAnInclusiveDayRange()
+    {
+        var entries = new[]
+        {
+            Entry("a", "2026-09-06", "opus", input: 1),
+            Entry("b", "2026-09-07", "opus", input: 10),
+            Entry("c", "2026-09-09", "opus", input: 100),
+            Entry("d", "2026-09-10", "opus", input: 1000),
+        };
+
+        var week = UsageAggregator.ForRange(entries, "2026-09-07", "2026-09-09");
+
+        Assert.Equal(110, week.Total);
+        Assert.Equal("2026-09-07", week.FromDay);
+        Assert.Equal("2026-09-09", week.ToDay);
+    }
+
+    [Fact]
+    public void RangeBoundsAreInclusiveAtBothEnds()
+    {
+        var entries = new[]
+        {
+            Entry("a", "2026-09-07", "opus", input: 1),
+            Entry("b", "2026-09-09", "opus", input: 2),
+        };
+
+        Assert.Equal(3, UsageAggregator.ForRange(entries, "2026-09-07", "2026-09-09").Total);
+    }
+
+    [Fact]
+    public void RangeSpansAMonthBoundary()
+    {
+        // yyyy-MM-dd sorts chronologically, which is what makes string comparison safe here.
+        var entries = new[]
+        {
+            Entry("a", "2026-08-31", "opus", input: 5),
+            Entry("b", "2026-09-01", "opus", input: 7),
+            Entry("c", "2026-08-30", "opus", input: 999),
+        };
+
+        Assert.Equal(12, UsageAggregator.ForRange(entries, "2026-08-31", "2026-09-01").Total);
+    }
+
+    [Fact]
+    public void AttributesCostPerModel()
+    {
+        var entries = new[]
+        {
+            Entry("a", "2026-09-09", "claude-opus-4-8", input: 1_000_000),
+            Entry("b", "2026-09-09", "claude-haiku-4-5-20251001", input: 1_000_000),
+        };
+
+        var day = UsageAggregator.ForDay(entries, "2026-09-09");
+
+        Assert.Equal(6d, day.Cost, precision: 6);
+        Assert.Equal(5d, day.Models.Single(m => m.Model == "claude-opus-4-8").Cost, precision: 6);
+        Assert.Equal(1d, day.Models.Single(m => m.Model.Contains("haiku")).Cost, precision: 6);
+    }
+
+    [Fact]
+    public void CostsUnpricedModelsAtZeroWithoutAffectingOthers()
+    {
+        var entries = new[]
+        {
+            Entry("a", "2026-09-09", "claude-opus-4-8", input: 1_000_000),
+            Entry("b", "2026-09-09", "grok-codex-fast", input: 1_000_000),
+        };
+
+        var day = UsageAggregator.ForDay(entries, "2026-09-09");
+
+        Assert.Equal(5d, day.Cost, precision: 6);
+        Assert.Equal(0d, day.Models.Single(m => m.Model.StartsWith("grok")).Cost);
+    }
 }

@@ -1,6 +1,6 @@
 namespace PokeTokenBar.Core.Usage;
 
-/// <summary>Token usage for one model within a day.</summary>
+/// <summary>Token usage and cost for one model within a window.</summary>
 public sealed record ModelUsage
 {
     /// <summary>Sanitised model identifier; safe to render.</summary>
@@ -14,13 +14,21 @@ public sealed record ModelUsage
 
     public required long CacheRead { get; init; }
 
+    /// <summary>Estimated USD. Zero for models with no published rate, never a guess.</summary>
+    public required double Cost { get; init; }
+
     public long Total => Input + Output + CacheWrite + CacheRead;
 }
 
-/// <summary>Token usage for one local calendar day, broken down by model.</summary>
-public sealed record DailyUsage
+/// <summary>
+/// Token usage over an inclusive range of local days, broken down by model. A single day is the
+/// degenerate case where both bounds are equal.
+/// </summary>
+public sealed record UsageTotals
 {
-    public required string LocalDay { get; init; }
+    public required string FromDay { get; init; }
+
+    public required string ToDay { get; init; }
 
     public required long Input { get; init; }
 
@@ -30,18 +38,22 @@ public sealed record DailyUsage
 
     public required long CacheRead { get; init; }
 
+    public required double Cost { get; init; }
+
     /// <summary>Descending by total, so a caller can render the top contributors directly.</summary>
     public required IReadOnlyList<ModelUsage> Models { get; init; }
 
     public long Total => Input + Output + CacheWrite + CacheRead;
 
-    public static DailyUsage Empty(string localDay) => new()
+    public static UsageTotals Empty(string fromDay, string toDay) => new()
     {
-        LocalDay = localDay,
+        FromDay = fromDay,
+        ToDay = toDay,
         Input = 0,
         Output = 0,
         CacheWrite = 0,
         CacheRead = 0,
+        Cost = 0,
         Models = [],
     };
 }

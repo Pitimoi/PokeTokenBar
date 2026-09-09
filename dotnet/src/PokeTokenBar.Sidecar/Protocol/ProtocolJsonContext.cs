@@ -7,14 +7,14 @@ namespace PokeTokenBar.Sidecar.Protocol;
 /// Source-generated serialisation for every type crossing the protocol boundary.
 /// </summary>
 /// <remarks>
-/// Required by NativeAOT: <c>SystemTextJsonFormatter</c> is only AOT-safe when given a
-/// generated resolver. StreamJsonRpc's default <c>JsonMessageFormatter</c> is not AOT-ready at
-/// all, so the formatter choice in <c>Program</c> is deliberate rather than incidental.
+/// Load-bearing under NativeAOT: <c>PolyTypeJsonFormatter</c> resolves payload types through
+/// <c>JsonSerializerOptions.TypeInfoResolver</c>, and without a generated resolver it fails at
+/// runtime rather than at build time. See "Formatter choice" in dotnet/README.md.
 /// </remarks>
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
-[JsonSerializable(typeof(TodayUsageResponse))]
+[JsonSerializable(typeof(UsageResponse))]
 [JsonSerializable(typeof(SidecarInfoResponse))]
 [JsonSerializable(typeof(ScanReport))]
-[JsonSerializable(typeof(DailyUsage))]
+[JsonSerializable(typeof(UsageTotals))]
 [JsonSerializable(typeof(ModelUsage))]
 internal sealed partial class ProtocolJsonContext : JsonSerializerContext;

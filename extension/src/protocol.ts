@@ -13,15 +13,19 @@ export interface ModelUsage {
   readonly output: number;
   readonly cacheWrite: number;
   readonly cacheRead: number;
+  readonly cost: number;
   readonly total: number;
 }
 
-export interface DailyUsage {
-  readonly localDay: string;
+/** Usage over an inclusive range of local days; a single day has equal bounds. */
+export interface UsageTotals {
+  readonly fromDay: string;
+  readonly toDay: string;
   readonly input: number;
   readonly output: number;
   readonly cacheWrite: number;
   readonly cacheRead: number;
+  readonly cost: number;
   readonly models: readonly ModelUsage[];
   readonly total: number;
 }
@@ -36,8 +40,10 @@ export interface ScanReport {
   readonly degraded: boolean;
 }
 
-export interface TodayUsageResponse {
-  readonly usage: DailyUsage;
+export interface UsageResponse {
+  readonly today: UsageTotals;
+  readonly week: UsageTotals;
+  readonly month: UsageTotals;
   readonly scan: ScanReport;
 }
 
@@ -46,5 +52,5 @@ export interface SidecarInfoResponse {
   readonly claudeTranscriptsPresent: boolean;
 }
 
-export const GetTodayUsage = new RequestType0<TodayUsageResponse, void>('GetTodayUsageAsync');
+export const GetUsage = new RequestType0<UsageResponse, void>('GetUsageAsync');
 export const GetInfo = new RequestType0<SidecarInfoResponse, void>('GetInfoAsync');

@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { formatTokens, mayStartHelper } from './guards';
-import { GetInfo, GetTodayUsage, ScanReport, TodayUsageResponse } from './protocol';
+import { GetInfo, GetUsage, ScanReport, UsageResponse, UsageTotals } from './protocol';
 import { Sidecar, SidecarError } from './sidecar';
 
 let sidecar: Sidecar | undefined;
@@ -89,7 +89,7 @@ async function refresh(): Promise<void> {
   }
 
   try {
-    const response = await sidecar.connection.sendRequest(GetTodayUsage);
+    const response = await sidecar.connection.sendRequest(GetUsage);
     render(response);
   } catch (error) {
     output.error(`refresh failed: ${String(error)}`);
@@ -98,23 +98,20 @@ async function refresh(): Promise<void> {
   }
 }
 
-function render(response: TodayUsageResponse): void {
+function render(response: UsageResponse): void {
   lastScan = response.scan;
-  const { usage, scan } = response;
+  const { today, week, month, scan } = response;
 
-  statusItem.text = `$(graph) ${formatTokens(usage.total)}${scan.degraded ? ' $(warning)' : ''}`;
+  statusItem.text = `$(graph) ${formatTokens(today.total)}${scan.degraded ? ' $(warning)' : ''}`;
 
   // Built with MarkdownString rather than string concatenation into HTML: values originate in
   // logs written by other tools. The sidecar already sanitises model names, so this is the
   // second of two independent guards, not the only one.
   const tooltip = new vscode.MarkdownString();
-  tooltip.appendMarkdown(`**Usage for ${usage.localDay}**\n\n`);
-  tooltip.appendMarkdown(`Total **${formatTokens(usage.total)}** tokens\n\n`);
-  for (const model of usage.models.slice(0, 6)) {
-    if (model.total > 0) {
-      tooltip.appendMarkdown(`- \`${model.model}\` — ${formatTokens(model.total)}\n`);
-    }
-  }
+  tooltip.appendMarkdown(`**Today** ${formatTokens(today.total)} · ${formatCost(today.cost)}\n\n`);
+  tooltip.appendMarkdown(`Week ${formatTokens(week.total)} · ${formatCost(week.cost)}\n\n`);
+  tooltip.appendMarkdown(`Month ${formatTokens(month.total)} · ${formatCost(month.cost)}\n\n`);
+  appendModels(tooltip, today);
 
   if (scan.degraded) {
     tooltip.appendMarkdown(
@@ -124,6 +121,26 @@ function render(response: TodayUsageResponse): void {
   }
 
   statusItem.tooltip = tooltip;
+}
+
+function appendModels(tooltip: vscode.MarkdownString, totals: UsageTotals): void {
+  const shown = totals.models.filter((model) => model.total > 0).slice(0, 6);
+  if (shown.length === 0) {
+    return;
+  }
+
+  tooltip.appendMarkdown('---\n\n');
+  for (const model of shown) {
+    const cost = model.cost > 0 ? ` · ${formatCost(model.cost)}` : '';
+    tooltip.appendMarkdown(`- \`${model.model}\` — ${formatTokens(model.total)}${cost}\n`);
+  }
+}
+
+function formatCost(cost: number): string {
+  if (!Number.isFinite(cost) || cost <= 0) {
+    return '$0.00';
+  }
+  return cost < 0.01 ? '<$0.01' : `$${cost.toFixed(2)}`;
 }
 
 function showDiagnostics(): void {

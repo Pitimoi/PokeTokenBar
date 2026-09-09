@@ -2,10 +2,17 @@ using PokeTokenBar.Core.Usage;
 
 namespace PokeTokenBar.Sidecar.Protocol;
 
-/// <summary>Usage for the current local day.</summary>
-public sealed record TodayUsageResponse
+/// <summary>
+/// All three reporting windows from one scan. Returned together because they are derived from a
+/// single pass over the transcripts, so splitting them into separate calls would rescan.
+/// </summary>
+public sealed record UsageResponse
 {
-    public required DailyUsage Usage { get; init; }
+    public required UsageTotals Today { get; init; }
+
+    public required UsageTotals Week { get; init; }
+
+    public required UsageTotals Month { get; init; }
 
     /// <summary>
     /// What the scan did and did not manage to read. Surfaced rather than swallowed so a host

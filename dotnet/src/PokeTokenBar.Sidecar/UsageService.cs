@@ -7,9 +7,9 @@ namespace PokeTokenBar.Sidecar;
 
 internal sealed class UsageService : IUsageService
 {
-    public async ValueTask<TodayUsageResponse> GetTodayUsageAsync(CancellationToken cancellationToken)
+    public async ValueTask<UsageResponse> GetUsageAsync(CancellationToken cancellationToken)
     {
-        var today = LocalDay.Today();
+        var now = DateTimeOffset.Now;
         var stopwatch = Stopwatch.StartNew();
 
         var entries = new List<UsageEntry>();
@@ -19,13 +19,13 @@ internal sealed class UsageService : IUsageService
         long entriesRejected = 0;
         long duplicatesCollapsed = 0;
 
+        // One scan feeds all three windows, bounded by the earliest of them.
+        var since = UsagePeriods.ScanStart(now);
+
         foreach (var root in TranscriptRoots.Claude())
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            // Yesterday, not today: a session that began before local midnight carries
-            // today's turns, and its file mtime can still predate the day boundary.
-            var since = DateTimeOffset.Now.AddDays(-2);
             var scan = await ClaudeTranscriptReader
                 .ReadDirectoryAsync(root, since, cancellationToken: cancellationToken)
                 .ConfigureAwait(false);
@@ -38,17 +38,21 @@ internal sealed class UsageService : IUsageService
             duplicatesCollapsed += scan.Stats.DuplicatesCollapsed;
         }
 
-        // Roots can overlap (a relocated config directory, a Desktop session), so the same
-        // turn can arrive from two roots and has to be collapsed once more here.
+        // Roots can overlap (a relocated config directory, a Desktop session), so the same turn
+        // can arrive from two roots and has to be collapsed once more here.
         var deduped = entries
             .GroupBy(static e => e.Id, StringComparer.Ordinal)
-            .Select(static group => group.MaxBy(static e => e.Total)!);
+            .Select(static group => group.MaxBy(static e => e.Total)!)
+            .ToArray();
 
+        var today = LocalDay.For(now);
         stopwatch.Stop();
 
-        return new TodayUsageResponse
+        return new UsageResponse
         {
-            Usage = UsageAggregator.ForDay(deduped, today),
+            Today = UsageAggregator.ForDay(deduped, today),
+            Week = UsageAggregator.ForRange(deduped, LocalDay.For(UsagePeriods.StartOfWeek(now)), today),
+            Month = UsageAggregator.ForRange(deduped, LocalDay.For(UsagePeriods.StartOfMonth(now)), today),
             Scan = new ScanReport
             {
                 FilesScanned = filesScanned,
