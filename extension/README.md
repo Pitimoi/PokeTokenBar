@@ -37,6 +37,10 @@ npm test         # 17 tests; the protocol suite drives the real binary
 window's status bar, not the window you pressed F5 in — easy to miss with several windows open,
 and the likeliest reason to conclude nothing happened.
 
+**Click the `$(graph)` item to open the companion.** The sidebar view is lazy — VS Code does
+not resolve it until it first becomes visible, so nothing renders until you open it. There is
+also a pokeball icon in the activity bar.
+
 A `$(graph)` item on the right of the status bar showing today's total. Hovering shows today,
 week and month with estimated cost and a per-model breakdown. Clicking refreshes.
 
@@ -65,7 +69,9 @@ Read it in this order:
 
 | Log line | Meaning |
 |---|---|
-| `status bar shows "..."` | It rendered. The problem is which window you are looking at, or a crowded status bar — the item has a stable id and name, so it can be re-enabled from the status bar's right-click menu. |
+| `status bar shows "..."` | The status bar rendered. If the companion is missing, look for the next two lines. |
+| `companion view not open yet` | Expected until you open it: webview views are resolved lazily. Click the status bar item or the activity bar icon. |
+| `companion view opened; rendering` | The view is live. A blank panel after this is a rendering fault, not a discovery one. |
 | `helper ... ready` but no `status bar shows` | The scan is still running or the refresh threw. |
 | `helper executable missing` | The build task did not stage the sidecar; run `npm run build:all`. |
 | No log file at all | The extension never activated. Check `exthost.log` in the same folder for `_doActivateExtension ... poketokenbar`. |

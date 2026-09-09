@@ -18,7 +18,15 @@ export class CompanionViewProvider implements vscode.WebviewViewProvider {
   private view?: vscode.WebviewView;
   private latest?: UsageResponse;
 
+  /**
+   * @param log Receives lifecycle notes. A webview view is resolved lazily, only once it first
+   * becomes visible, so without this there is no way to tell "never opened" from "opened but
+   * blank" — two states needing opposite fixes.
+   */
+  constructor(private readonly log: (message: string) => void = () => {}) {}
+
   resolveWebviewView(view: vscode.WebviewView): void {
+    this.log('companion view opened; rendering');
     this.view = view;
     view.webview.options = { enableScripts: false, localResourceRoots: this.resourceRoots() };
     this.render();
@@ -26,6 +34,11 @@ export class CompanionViewProvider implements vscode.WebviewViewProvider {
 
   update(response: UsageResponse): void {
     this.latest = response;
+    if (!this.view) {
+      this.log('companion view not open yet — click the status bar item to reveal it');
+      return;
+    }
+
     if (this.view) {
       // Re-narrowed on every update: the sprite directory is reported by the sidecar, so it is
       // not known until the first response arrives.

@@ -25,7 +25,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   statusItem.command = 'poketokenbar.showCompanion';
   context.subscriptions.push(output, statusItem);
 
-  companionView = new CompanionViewProvider();
+  companionView = new CompanionViewProvider((message) => output.info(message));
   context.subscriptions.push(
     vscode.window.registerWebviewViewProvider(CompanionViewProvider.viewType, companionView),
     vscode.commands.registerCommand('poketokenbar.showCompanion', showCompanion),
