@@ -33,6 +33,10 @@ npm test         # 17 tests; the protocol suite drives the real binary
 
 ## What to expect
 
+**F5 opens a second window**, titled `[Extension Development Host]`. The item appears in *that*
+window's status bar, not the window you pressed F5 in — easy to miss with several windows open,
+and the likeliest reason to conclude nothing happened.
+
 A `$(graph)` item on the right of the status bar showing today's total. Hovering shows today,
 week and month with estimated cost and a per-model breakdown. Clicking refreshes.
 
@@ -47,6 +51,24 @@ Other states, all of them intentional rather than error paths:
 
 Cost is an estimate of what those tokens would bill at published API rates, matching `ccusage`.
 It is not what a subscription charges.
+
+## When nothing appears
+
+The extension's log settles it, rather than guesswork. Open **Output → PokeTokenBar** in the
+development host window, or read it from disk — VS Code persists a `LogOutputChannel` under:
+
+```
+%APPDATA%/Code/logs/<session>/window<N>/exthost/undefined_publisher.poketokenbar/PokeTokenBar.log
+```
+
+Read it in this order:
+
+| Log line | Meaning |
+|---|---|
+| `status bar shows "..."` | It rendered. The problem is which window you are looking at, or a crowded status bar — the item has a stable id and name, so it can be re-enabled from the status bar's right-click menu. |
+| `helper ... ready` but no `status bar shows` | The scan is still running or the refresh threw. |
+| `helper executable missing` | The build task did not stage the sidecar; run `npm run build:all`. |
+| No log file at all | The extension never activated. Check `exthost.log` in the same folder for `_doActivateExtension ... poketokenbar`. |
 
 ## Verifying the trust gate
 
