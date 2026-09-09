@@ -24,6 +24,10 @@
   "contributes": {
     "commands": [
       {
+        "command": "poketokenbar.showCompanion",
+        "title": "PokeTokenBar: Show companion"
+      },
+      {
         "command": "poketokenbar.refresh",
         "title": "PokeTokenBar: Refresh usage"
       },
@@ -50,7 +54,7 @@
         {
           "id": "poketokenbar",
           "title": "PokeTokenBar",
-          "icon": "$(graph)"
+          "icon": "media/companion.svg"
         }
       ]
     },

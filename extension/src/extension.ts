@@ -22,12 +22,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     10_000,
   );
   statusItem.name = 'PokeTokenBar usage';
-  statusItem.command = 'poketokenbar.refresh';
+  statusItem.command = 'poketokenbar.showCompanion';
   context.subscriptions.push(output, statusItem);
 
   companionView = new CompanionViewProvider();
   context.subscriptions.push(
     vscode.window.registerWebviewViewProvider(CompanionViewProvider.viewType, companionView),
+    vscode.commands.registerCommand('poketokenbar.showCompanion', showCompanion),
     vscode.commands.registerCommand('poketokenbar.refresh', () => void refresh()),
     vscode.commands.registerCommand('poketokenbar.showDiagnostics', showDiagnostics),
     { dispose: stop },
@@ -164,6 +165,12 @@ function formatCost(cost: number): string {
     return '$0.00';
   }
   return cost < 0.01 ? '<$0.01' : `$${cost.toFixed(2)}`;
+}
+
+/** Reveals the companion view. VS Code generates the `.focus` command for a contributed view. */
+function showCompanion(): void {
+  void vscode.commands.executeCommand(`${CompanionViewProvider.viewType}.focus`);
+  void refresh();
 }
 
 function showDiagnostics(): void {

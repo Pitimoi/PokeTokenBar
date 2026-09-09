@@ -6,6 +6,8 @@ tsconfig.json
 **/*.ts
 **/*.map
 
+# media/ ships too: the activity bar icon is loaded from the installed extension.
+
 # server/ is intentionally NOT ignored: the platform-specific sidecar binary ships in the VSIX.
 # Downloading it on first run was rejected — it would reintroduce the unverified-artifact
 # problem the Swift release pipeline has today.
