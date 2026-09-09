@@ -227,7 +227,7 @@ public static class ClaudeTranscriptReader
             {
                 Id = string.Concat(messageId, "|", requestId),
                 Timestamp = when,
-                LocalDay = LocalDayOf(when),
+                LocalDay = LocalDay.For(when),
                 Model = DisplayText.SanitizeIdentifier(TryGetString(message, "model", out var model) ? model : null),
                 Input = input,
                 Output = output,
@@ -257,13 +257,6 @@ public static class ClaudeTranscriptReader
             CultureInfo.InvariantCulture,
             DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal,
             out when);
-
-    /// <summary>
-    /// Buckets by local calendar day. Timestamps are logged in UTC, so converting is what
-    /// makes "today" mean the user's today rather than UTC's.
-    /// </summary>
-    private static string LocalDayOf(DateTimeOffset when) =>
-        when.ToLocalTime().ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
 
     private static IEnumerable<string> EnumerateTranscripts(string root, DateTimeOffset? modifiedSince)
     {

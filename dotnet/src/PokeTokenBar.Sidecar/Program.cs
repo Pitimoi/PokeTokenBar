@@ -1,33 +1,48 @@
-using PokeTokenBar.Core.Usage;
+using System.Text.Json;
+using PokeTokenBar.Sidecar;
+using PokeTokenBar.Sidecar.Protocol;
+using StreamJsonRpc;
 
-// Temporary parity harness, replaced by the stdio protocol host next. The real protocol
-// accepts no paths from its caller — see invariant 3 in dotnet/README.md.
-if (args.Length == 0)
+// stdio only. Opening a socket — even on loopback — would make a process that reads other
+// tools' credentials reachable by any local process and by any web page the user visits.
+// Arguments are ignored on purpose: nothing the caller says may select what this process reads.
+//
+// PolyTypeJsonFormatter, not SystemTextJsonFormatter: the latter's constructor is annotated
+// RequiresDynamicCode, so it is unsafe under AOT even when handed a JsonSerializerContext.
+// Both emit UTF-8 JSON, which is what keeps vscode-jsonrpc on the host side interoperable.
+#pragma warning disable PolyTypeJson // Evaluation-only API; see "Formatter choice" in dotnet/README.md.
+var formatter = new PolyTypeJsonFormatter
 {
-    Console.Error.WriteLine("usage: PokeTokenBar.Sidecar <transcript.jsonl|directory>");
-    return 2;
+    TypeShapeProvider = ProtocolShapes.GeneratedTypeShapeProvider,
+    // The context's own options, not a fresh instance borrowing its resolver: the camelCase
+    // policy lives in JsonSourceGenerationOptions and is baked into the generated metadata.
+    JsonSerializerOptions = ProtocolJsonContext.Default.Options,
+};
+#pragma warning restore PolyTypeJson
+
+using var stdin = Console.OpenStandardInput();
+using var stdout = Console.OpenStandardOutput();
+
+var handler = new HeaderDelimitedMessageHandler(stdout, stdin, formatter);
+using var rpc = new JsonRpc(handler);
+
+rpc.AddLocalRpcTarget(
+    RpcTargetMetadata.FromShape<IUsageService>(),
+    new UsageService(),
+    new JsonRpcTargetOptions { DisposeOnDisconnect = false });
+
+rpc.StartListening();
+
+try
+{
+    await rpc.Completion;
+}
+catch (OperationCanceledException)
+{
+    // The host closed the pipe: a normal shutdown, not a failure.
+}
+catch (ObjectDisposedException)
+{
 }
 
-var target = args[0];
-var scan = Directory.Exists(target)
-    ? await ClaudeTranscriptReader.ReadDirectoryAsync(target)
-    : await ClaudeTranscriptReader.ReadFileAsync(target);
-
-long input = 0, output = 0, cacheWrite = 0, cacheRead = 0;
-foreach (var entry in scan.Entries)
-{
-    input += entry.Input;
-    output += entry.Output;
-    cacheWrite += entry.CacheWrite;
-    cacheRead += entry.CacheRead;
-}
-
-Console.WriteLine($"unique entries: {scan.Entries.Count}");
-Console.WriteLine($"input         : {input}");
-Console.WriteLine($"output        : {output}");
-Console.WriteLine($"cacheWrite    : {cacheWrite}");
-Console.WriteLine($"cacheRead     : {cacheRead}");
-Console.WriteLine($"TOTAL         : {input + output + cacheWrite + cacheRead}");
-Console.WriteLine();
-Console.WriteLine($"stats         : {scan.Stats}");
 return 0;

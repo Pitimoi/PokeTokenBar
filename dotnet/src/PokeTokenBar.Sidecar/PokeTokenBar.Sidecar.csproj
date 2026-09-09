@@ -9,4 +9,8 @@
     <ProjectReference Include="..\PokeTokenBar.Core\PokeTokenBar.Core.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <PackageReference Include="StreamJsonRpc" Version="2.25.29" />
+  </ItemGroup>
+
 </Project>

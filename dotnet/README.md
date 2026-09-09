@@ -77,20 +77,55 @@ transport grounds: HTTP/2 means a listening port, which invariant 1 rules out.
 If payloads later grow to full history series, `NerdbankMessagePackFormatter` is an upgrade path
 inside StreamJsonRpc rather than a protocol rewrite.
 
-### StreamJsonRpc under NativeAOT
+### Formatter choice
 
-Formatter choice is the whole game, and the default is the wrong one:
+Measured against the AOT analyzers rather than taken from the docs, because the docs were
+misleading in both directions:
 
-| Formatter | AOT |
-|---|---|
-| `NerdbankMessagePackFormatter` | Fully supported, officially recommended |
-| `SystemTextJsonFormatter` | Semi-safe — needs `JsonSerializerContext`, `[JsonSerializable]`, `RegisterGenericType<T>()` |
-| `JsonMessageFormatter` (**default**) | **Not AOT-ready** |
+| Formatter | AOT | Wire |
+|---|---|---|
+| `PolyTypeJsonFormatter` | Clean — **in use** | UTF-8 JSON |
+| `NerdbankMessagePackFormatter` | Clean | MessagePack |
+| `SystemTextJsonFormatter` | **Fails** — ctor is `RequiresDynamicCode`/`RequiresUnreferencedCode` | UTF-8 JSON |
+| `JsonMessageFormatter` (**default**) | Fails | UTF-8 JSON |
 
-Server side must use the `AddLocalRpcTarget(RpcTargetMetadata, …)` overload and apply
-`[JsonRpcContract]` + `[GenerateShape]` to the contract interface. That attribute is also what
-satisfies invariant 3: the callable surface is declared once and enforced by the compiler, which is
-a stronger closed-set guarantee than a hand-written dispatch switch.
+To be clear about where the AOT problem is and is not: **System.Text.Json's source-generated
+path is AOT-safe, and it is what serialises every payload here** — that is exactly what
+`ProtocolJsonContext` is. The blocker is StreamJsonRpc's `SystemTextJsonFormatter` *wrapper*,
+whose constructor carries both annotations, so it cannot be constructed AOT-clean however good a
+resolver it is handed. The annotation is on the formatter class, not on STJ.
+
+That annotation may well be conservative, and the formatter might behave correctly at runtime
+given a source-generated resolver. Verifying that needs a real AOT publish, which the primary
+dev machine cannot currently do (see Prerequisites), so suppressing `IL3050` would mean shipping
+an unverified assumption into the only configuration we distribute. `PolyTypeJsonFormatter` is
+analyzer-clean today and emits the same JSON, which is what keeps `vscode-jsonrpc` interoperable
+on the host side; MessagePack would force a codec onto the TypeScript end.
+
+The catch, and the reason this is written down: `PolyTypeJsonFormatter` is marked
+evaluation-only, so the `PolyTypeJson` diagnostic is suppressed at the single use site in
+`Program.cs`. Should it be withdrawn, the fallback is `NerdbankMessagePackFormatter` plus a
+MessagePack codec on the host. The wire format is JSON either way today, so a swap would not
+touch the contract or the host's request shapes.
+
+It serialises in two halves, which is worth knowing before changing either:
+
+- **PolyType shapes** drive the RPC contract plumbing — hence `[GenerateShape(IncludeMethods =
+  MethodShapeFlags.PublicInstance)]` on the interface, a `[GenerateShapeFor<T>]` witness, and
+  `TypeShapeProvider`.
+- **System.Text.Json** serialises the payload types through `JsonSerializerOptions.TypeInfoResolver`.
+  Omitting the resolver fails at runtime, not at build time: *"JsonTypeInfo metadata … was not
+  provided by TypeInfoResolver of type '<null>'"*.
+
+Assign `ProtocolJsonContext.Default.Options` rather than a fresh `JsonSerializerOptions` that
+merely borrows the resolver — the camelCase policy lives in `JsonSourceGenerationOptions` and is
+baked into the generated metadata, so a fresh options object silently emits PascalCase.
+
+Server side must use the `AddLocalRpcTarget(RpcTargetMetadata, …)` overload with
+`RpcTargetMetadata.FromShape<T>()`; the reflection-based overloads are not AOT-safe.
+
+`IsAotCompatible` plus `TreatWarningsAsErrors` on `src/` is what makes all of this checkable on a
+machine that cannot run `dotnet publish` — AOT-hostile calls fail the ordinary build.
 
 Test-only packages are unconstrained; they never ship in the sidecar.
 
