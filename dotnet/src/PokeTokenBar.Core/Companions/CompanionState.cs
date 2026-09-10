@@ -133,6 +133,29 @@ public sealed record CompanionState
     /// </summary>
     public int LastReachedSpeciesId { get; init; }
 
+    /// <summary>
+    /// Which species along the active line were already in the Pokédex before this line began.
+    /// Snapshotted once, at <see cref="WithLine"/> or <see cref="WithResolvedPath"/> time,
+    /// because a flat Pokédex cannot say whether an id already there came from some earlier line
+    /// or from this one — a branching species drawn again into a different branch (Eevee) shares
+    /// its base form with a line that may already have graduated.
+    /// </summary>
+    public IReadOnlyList<int>? RediscoveredInLine { get; init; }
+
+    /// <summary>
+    /// The one species still genuinely in doubt: the active line's current form, unless its line
+    /// has graduated or this exact species already proved itself through an earlier line.
+    /// </summary>
+    [JsonIgnore]
+    public int? PendingSpeciesId
+    {
+        get
+        {
+            var pending = ToCompanion().PendingSpeciesId;
+            return pending is { } id && (RediscoveredInLine ?? []).Contains(id) ? null : pending;
+        }
+    }
+
     /// <summary>True when there is a companion to spend on, rather than an offer to choose from.</summary>
     /// <remarks>
     /// Ignored on the wire: a get-only property is serialised but never deserialised, so
@@ -169,6 +192,7 @@ public sealed record CompanionState
         Pokedex = [],
         Graduated = [],
         LastReachedSpeciesId = 0,
+        RediscoveredInLine = [],
     };
 
     /// <summary>Adopts a drawn line as the active companion and records it in the Pokédex.</summary>
@@ -181,6 +205,8 @@ public sealed record CompanionState
             return this;
         }
 
+        var owned = Pokedex ?? [];
+
         return (this with
         {
             SpeciesPath = line.SpeciesPath,
@@ -188,6 +214,7 @@ public sealed record CompanionState
             StageIndex = 0,
             TokensAtStage = 0,
             PathResolved = line.Resolved,
+            RediscoveredInLine = [.. line.SpeciesPath.Where(owned.Contains)],
         }).WithPokedexEntry(line.SpeciesPath[0]);
     }
 
@@ -203,11 +230,14 @@ public sealed record CompanionState
             return this;
         }
 
+        var owned = Pokedex ?? [];
+
         return this with
         {
             SpeciesPath = line.SpeciesPath,
             StageIndex = Math.Clamp(StageIndex, 0, line.SpeciesPath.Count - 1),
             PathResolved = true,
+            RediscoveredInLine = [.. line.SpeciesPath.Where(owned.Contains)],
         };
     }
 
@@ -252,6 +282,7 @@ public sealed record CompanionState
                 Pokedex = [.. Keep(owned).Order()],
                 Graduated = Keep(Graduated),
                 LastReachedSpeciesId = KeepOne(LastReachedSpeciesId),
+                RediscoveredInLine = Keep(RediscoveredInLine),
                 WatermarkDay = WatermarkDay.Length <= 10 ? WatermarkDay : string.Empty,
                 WatermarkTokens = Math.Max(0, WatermarkTokens),
             };
@@ -278,6 +309,7 @@ public sealed record CompanionState
             Pokedex = [.. Keep(owned).Order()],
             Graduated = Keep(Graduated),
             LastReachedSpeciesId = KeepOne(LastReachedSpeciesId),
+            RediscoveredInLine = Keep(RediscoveredInLine),
         };
     }
 

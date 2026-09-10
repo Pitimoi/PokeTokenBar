@@ -411,6 +411,96 @@ public sealed class AdvanceTests
     }
 }
 
+/// <summary>
+/// A branching species (Eevee) shares its base form across lines. Reaching that shared form
+/// again from a fresh hatch must not read as "still in doubt" when an earlier line already
+/// proved it — these cover that without needing three separate renderers to agree on it.
+/// </summary>
+public sealed class RediscoveredSpeciesTests
+{
+    [Fact]
+    public void HatchingRecordsWhichStagesWereAlreadyKnown()
+    {
+        // Species 1 already graduated as part of the (1, 3) line; this hatch draws the (1, 2)
+        // branch instead.
+        var state = CompanionState.New(1) with { Pokedex = [1, 3], Graduated = [3] };
+
+        var hatched = state.WithLine(new EvolutionLine { SpeciesPath = [1, 2], Rarity = Rarity.Common });
+
+        Assert.Equal([1], hatched.RediscoveredInLine);
+    }
+
+    [Fact]
+    public void ARediscoveredBaseFormIsNotPendingRightAfterHatching()
+    {
+        var state = CompanionState.New(1) with { Pokedex = [1, 3], Graduated = [3] };
+
+        var hatched = state.WithLine(new EvolutionLine { SpeciesPath = [1, 2], Rarity = Rarity.Common });
+
+        Assert.Null(hatched.PendingSpeciesId);
+    }
+
+    [Fact]
+    public void EvolvingPastARediscoveredBaseIntoAGenuinelyNewFormIsPending()
+    {
+        var state = CompanionState.New(1) with { Pokedex = [1, 3], Graduated = [3] };
+        var hatched = state.WithLine(new EvolutionLine { SpeciesPath = [1, 2], Rarity = Rarity.Common }) with
+        {
+            Earned = 1_000_000_000,
+            TokensAtStage = PokemonBalance.PhaseThreshold(Rarity.Common, 2, 0) - 1,
+        };
+
+        var spend = CompanionKeeper.Advance(hatched);
+
+        Assert.True(spend.State.HasCompanion);
+        Assert.Equal(2, spend.State.PendingSpeciesId);
+    }
+
+    [Fact]
+    public void ReHatchingAFullyKnownBranchIsNeverPending()
+    {
+        // Every stage of this exact branch was already reached by an earlier, graduated line.
+        var state = CompanionState.New(1) with { Pokedex = [1, 2], Graduated = [2] };
+        var hatched = state.WithLine(new EvolutionLine { SpeciesPath = [1, 2], Rarity = Rarity.Common });
+
+        Assert.Null(hatched.PendingSpeciesId);
+
+        var spend = CompanionKeeper.Advance(hatched with
+        {
+            Earned = 1_000_000_000,
+            TokensAtStage = PokemonBalance.PhaseThreshold(Rarity.Common, 2, 0) - 1,
+        });
+
+        Assert.Null(spend.State.PendingSpeciesId);
+    }
+
+    [Fact]
+    public void ANeverBeforeSeenSpeciesIsPendingImmediately()
+    {
+        var hatched = CompanionState.New(1)
+            .WithLine(new EvolutionLine { SpeciesPath = [1, 2, 3], Rarity = Rarity.Common });
+
+        Assert.Empty(hatched.RediscoveredInLine!);
+        Assert.Equal(1, hatched.PendingSpeciesId);
+    }
+
+    [Fact]
+    public void SanitizedKeepsRediscoveredInLine()
+    {
+        var state = GameStates.WithCompanion() with { RediscoveredInLine = [1] };
+
+        Assert.Equal([1], state.Sanitized().RediscoveredInLine);
+    }
+
+    [Fact]
+    public void SanitizedDropsImplausibleRediscoveredIds()
+    {
+        var state = GameStates.WithCompanion() with { RediscoveredInLine = [1, -5, 99_999] };
+
+        Assert.Equal([1], state.Sanitized().RediscoveredInLine);
+    }
+}
+
 public sealed class CompanionStateSanitizerTests
 {
     private static CompanionState Active() => GameStates.WithCompanion();

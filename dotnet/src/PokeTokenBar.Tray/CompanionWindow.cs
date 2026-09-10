@@ -195,9 +195,9 @@ internal sealed class CompanionWindow : Window
             $"POKÉDEX {snapshot.Pokedex.Count} · COMPLETED {snapshot.GraduatedCount}");
 
         // The one form still being raised is shown in grey; every earlier form in this same
-        // line, and every finished line, is locked in.
-        var pending = snapshot.Current is null ? null : snapshot.Companion.PendingSpeciesId;
-        UpdatePokedex(snapshot.Pokedex, pending);
+        // line, every finished line, and a rediscovered species (Eevee into a new branch after
+        // an earlier one graduated) are all locked in.
+        UpdatePokedex(snapshot.Pokedex, snapshot.PendingSpeciesId);
 
         Status = EventLine(snapshot);
     }
