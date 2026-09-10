@@ -1,7 +1,8 @@
-# PokeTokenBar — C# port (usage core + VS Code sidecar)
+# PokeTokenBar — C# port (usage core, VS Code sidecar, tray app)
 
-A cross-platform (Windows / macOS / Linux) reimplementation of the usage-reading core, hosted by a
-deliberately thin VS Code extension. The Swift app it was ported from lives [upstream](https://github.com/chattymin/PokeTokenBar).
+A cross-platform (Windows / macOS / Linux) reimplementation of the usage-reading core, with two
+hosts: a deliberately thin VS Code extension, and a standalone tray application (see
+[Tray app](#tray-app)). The Swift app it was ported from lives [upstream](https://github.com/chattymin/PokeTokenBar).
 
 ## Layout
 
@@ -9,8 +10,10 @@ deliberately thin VS Code extension. The Swift app it was ported from lives [ups
 |---|---|
 | `src/PokeTokenBar.Core` | Parsing + aggregation. No UI, no host, **no third-party packages**. |
 | `src/PokeTokenBar.Sidecar` | Console host. stdio only — never opens a socket or port. |
+| `src/PokeTokenBar.Tray` | Desktop host: tray icon + popup (Avalonia). Publishes `status.json` for other tools. |
 | `tests/PokeTokenBar.Core.Tests` | xunit. Test-only packages are fine here; `Core` stays dependency-free. |
 | `../extension` | VS Code extension (TypeScript). Renders; holds no credentials. |
+| `../scripts/claude-statusline` | Claude Code status-line segments reading the tray app's `status.json`. |
 
 ## Security invariants
 
@@ -209,3 +212,165 @@ Neither blocks development, because `build`/`run`/`test` never invoke the native
 per-RID artifacts are built on matching CI runners (`windows-latest`, `macos-latest`, `ubuntu-latest`)
 and bundled into platform-specific VSIX builds. Downloading the sidecar on first run is deliberately
 rejected: it would reintroduce the unverified-artifact problem the Swift release pipeline has today.
+
+## Tray app
+
+`src/PokeTokenBar.Tray` runs in the background and plays the same game as the VS Code extension
+from the system tray:
+
+- Your Claude Code usage is read from its transcripts every minute and credited to a **budget**.
+- With no companion, three **eggs** are on offer. Pick one (it costs a fixed number of tokens) and
+  it hatches on the spot into a species drawn from the whole Pokédex.
+- With a companion, **feed** it: each press spends tokens on its growth; reaching a threshold
+  evolves it, and the final form completes the line, after which three new eggs appear.
+- The tray icon is the companion's sprite (a pokéball while eggs are on offer). Clicking it opens
+  a small popup: the eggs to pick from, or the sprite at 3× with species number, rarity, stage,
+  progress and the feed button; below, the budget ledger and your token usage and cost for today,
+  this week and this month. It hides when it loses focus; **Refresh** and **Quit** are in the
+  popup, **Open** and **Quit** in the tray menu.
+- The save is shared with the sidecar, so both hosts show the same companion and budget.
+- It also publishes machine-readable status for other tools — a Claude Code status line and
+  spinner verbs are provided (see [Claude Code integration](#claude-code-integration)).
+
+### Requirements
+
+- **.NET 10 SDK** to build. No other packages beyond Avalonia are pulled in.
+- **A system tray.** Windows and macOS have one. On Linux the desktop must offer a
+  StatusNotifierItem host: KDE Plasma does natively; GNOME needs the *AppIndicator and
+  KStatusNotifierItem Support* extension (Ubuntu ships it enabled).
+- **Network access** to `pokeapi.co` / `graphql.pokeapi.co` (species, names, evolution chains)
+  and `raw.githubusercontent.com` (sprites). Everything is cached after the first download;
+  offline, hatching falls back to a built-in set of classic lines and the companion still shows
+  its number and progress.
+
+### Build and run
+
+```bash
+dotnet run --project src/PokeTokenBar.Tray          # from this directory
+```
+
+To install it, publish a Release build to a stable location and run that instead of the source
+tree, so rebuilding does not disturb the running app:
+
+```bash
+dotnet publish src/PokeTokenBar.Tray -c Release -o <install-dir>
+dotnet <install-dir>/PokeTokenBar.Tray.dll
+```
+
+There is no single-instance guard: launching it twice gives two icons.
+
+### Start at login (Linux)
+
+A systemd user service, tied to the graphical session so it stops and starts with it:
+
+```ini
+# ~/.config/systemd/user/poketokenbar.service
+[Unit]
+Description=PokeTokenBar tray companion
+PartOf=graphical-session.target
+After=graphical-session.target
+
+[Service]
+ExecStart=/usr/bin/dotnet <install-dir>/PokeTokenBar.Tray.dll
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=graphical-session.target
+```
+
+```bash
+systemctl --user daemon-reload && systemctl --user enable --now poketokenbar
+systemctl --user restart poketokenbar        # after publishing a new build
+journalctl --user -u poketokenbar -f         # logs
+```
+
+On Windows and macOS use the usual login-item mechanisms (Startup folder / Login Items) to run
+the published `PokeTokenBar.Tray` executable.
+
+### Data directory
+
+Everything the app writes lives in one folder — `~/.local/share/PokeTokenBar` on Linux (or
+`$XDG_DATA_HOME/PokeTokenBar`), `%LOCALAPPDATA%\PokeTokenBar` on Windows,
+`~/Library/Application Support/PokeTokenBar` on macOS:
+
+| File | Purpose |
+|---|---|
+| `companion.json` | The save: budget ledger, eggs on offer or active companion, Pokédex, completed lines (shared with the sidecar). |
+| `pokedex/` | Cached species index, evolution chains and names (maintained by `Core`). |
+| `sprites/`, `icons/` | Cached sprites, and 64×64 crops of them for tools that render images. |
+| `status.json` | For other tools: current companion (id, name, stage, progress, dominant colour, sprite and icon paths) or `null` while eggs are on offer, the budget (available, earned, spent, prices, eggs on offer), last completed line, today's usage. Rewritten on every refresh, atomically. |
+| `claude-settings.json` | A Claude Code settings fragment carrying `spinnerVerbs` about the companion. |
+
+Everything but `companion.json` is a cache: deleting the folder loses the save, nothing else.
+
+### Claude Code integration
+
+Both integrations read files from the data directory, so the tray app must be running (or have
+run at least once) for them to show anything.
+
+#### Status line
+
+`../scripts/claude-statusline/` contains two independent scripts, each printing one line and
+nothing at all when there is nothing to show:
+
+| Script | Output | Example |
+|---|---|---|
+| `progress.sh` | Companion being raised: icon, number, 10-cell progress bar, percent — or, while eggs are on offer, the eggs and the budget against the hatch price | `● #172 ░░░░░░░░░░ 9%` / `🥚 ×3 · 1.2M / 5.0M` |
+| `previous.sh` | Last companion whose line completed: icon, number, name (silent until then) | `● #26 Raichu` |
+
+Requirements: `bash` and `jq`. Call either or both from your own `~/.claude/statusline.sh` and
+place the output where you like, e.g.:
+
+```bash
+POKE=/path/to/PokeTokenBar/scripts/claude-statusline
+PROGRESS=$("$POKE/progress.sh")     # may be empty
+PREVIOUS=$("$POKE/previous.sh")     # may be empty
+```
+
+The **icon** is the actual sprite in terminals that implement kitty's graphics protocol with
+Unicode placeholders — kitty and Ghostty — and a `●` in the sprite's dominant colour everywhere
+else (including Windows Terminal, and inside tmux). Ordinary inline-image protocols cannot be used
+because Claude Code redraws the status line as text, which wipes them; placeholders survive because
+the image is displayed by regular characters. The scripts claim kitty image ids 200 and 201.
+
+Two things to know when laying out the line: the segments contain ANSI colour escapes and, in
+kitty/Ghostty, combining marks — strip both before measuring their width; and Claude Code draws
+its status line a few columns narrower than the `$COLUMNS` it exports (4 on 2.1.x), so a
+right-aligned segment needs that margin or it is truncated with `…`.
+
+#### Spinner verbs
+
+The app keeps `claude-settings.json` in the data directory: a Claude Code settings fragment
+whose `spinnerVerbs` are about the companion (`<icon> getting fed`, `Warming up <icon> egg`,
+`Playing with <icon>`, …; egg-themed while eggs are on offer), updated when the species changes.
+It never edits your own Claude Code
+settings; load it with the CLI's `--settings` flag, for instance via a shell function:
+
+```bash
+claude() { command claude --settings "$HOME/.local/share/PokeTokenBar/claude-settings.json" "$@"; }
+```
+
+Notes:
+
+- Claude Code merges settings from all sources and concatenates arrays, so a `spinnerVerbs` entry
+  in `~/.claude/settings.json` is *added to* these rather than replaced. Remove it there to see
+  only the companion's verbs.
+- The `<icon>` is the same kitty placeholder as in the status line, so it needs a kitty/Ghostty
+  terminal and the status line to have transmitted the image at least once in that session.
+  Elsewhere it appears as escape text; if you use another terminal, edit the templates in
+  `SpinnerVerbs.cs` to use the species name instead.
+- Claude Code's spinner animation re-colours the verb per character, which breaks the placeholder
+  while it animates (escape text flickers in). `"prefersReducedMotion": true` in Claude Code's
+  settings renders it steadily.
+
+### Known limitations
+
+- The popup docks in the corner nearest the tray (top-right; bottom-right on Windows) rather than
+  under the icon: the tray protocols do not report the icon's position.
+- On GNOME, the appindicator extension opens the menu on a single left click; the popup opens on a
+  **double-click** or middle-click.
+- Windows and macOS builds compile and use the same code paths but have not been exercised on real
+  hardware. The status-line scripts on Windows require Git Bash and `jq`, and depend on Claude Code
+  running its status-line command through bash there.
+
