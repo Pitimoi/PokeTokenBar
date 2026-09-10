@@ -79,6 +79,82 @@ public sealed class SpeciesLibrary
     }
 
     /// <summary>
+    /// The forms raised on the way to <paramref name="speciesId"/>, ending with it, or empty
+    /// when its line could not be determined.
+    /// </summary>
+    /// <returns>
+    /// A single-element list is a real answer — a species with no earlier form. Empty means the
+    /// lookup failed and is worth retrying; the two are distinguished so a caller does not treat
+    /// a genuine single-form line as a failure and retry it forever.
+    /// </returns>
+    /// <remarks>
+    /// Needed because a completed line is recorded by its final form alone, so reconstructing
+    /// what was raised means working backwards from the end. <see cref="LoadPathsAsync"/> cannot
+    /// answer this: it keeps only paths that *start* at the species it was asked about, which is
+    /// empty for a final form. The built-in table is consulted first because it costs nothing
+    /// and covers the classic lines.
+    /// </remarks>
+    public async ValueTask<IReadOnlyList<int>> LineageOfAsync(
+        int speciesId,
+        CancellationToken cancellationToken = default)
+    {
+        if (speciesId < 1)
+        {
+            return [];
+        }
+
+        var offline = EvolutionLines.All
+            .Select(line => Prefix(line.SpeciesPath, speciesId))
+            .FirstOrDefault(static found => found.Count > 0);
+        if (offline is { Count: > 0 })
+        {
+            return offline;
+        }
+
+        var file = LineagePath(speciesId);
+        var cached = ReadCache(file, PokedexJsonContext.Default.EvolutionPathsSnapshot);
+        if (cached is { Paths.Count: > 0 })
+        {
+            return cached.Paths[0];
+        }
+
+        var chainId = await _api.GetChainIdAsync(speciesId, cancellationToken).ConfigureAwait(false);
+        if (chainId is null)
+        {
+            return [];
+        }
+
+        var chain = await _api.GetEvolutionChainAsync(chainId.Value, cancellationToken).ConfigureAwait(false);
+        RememberNames(chain.Names);
+
+        var lineage = chain.Paths
+            .Select(path => Prefix(path, speciesId))
+            .FirstOrDefault(static found => found.Count > 0);
+
+        if (lineage is not { Count: > 0 })
+        {
+            return [];
+        }
+
+        WriteCache(
+            file,
+            new EvolutionPathsSnapshot { BaseSpeciesId = speciesId, Paths = [[.. lineage]] },
+            PokedexJsonContext.Default.EvolutionPathsSnapshot);
+
+        return lineage;
+    }
+
+    /// <summary>The path up to and including <paramref name="speciesId"/>, or empty if absent.</summary>
+    private static IReadOnlyList<int> Prefix(IReadOnlyList<int> path, int speciesId)
+    {
+        var at = path is int[] array
+            ? Array.IndexOf(array, speciesId)
+            : path.ToList().IndexOf(speciesId);
+
+        return at < 0 ? [] : [.. path.Take(at + 1)];
+    }
+
+    /// <summary>
     /// Weighted so rarer species stay rare. A uniform draw over the index made legendaries
     /// roughly one draw in seven, because generations I to V hold dozens of them.
     /// </summary>
@@ -215,6 +291,16 @@ public sealed class SpeciesLibrary
     private string NamesPath => SysIO.Path.Combine(_directory, "names.json");
 
     private string IndexPath => SysIO.Path.Combine(_directory, "base-index.json");
+
+    /// <remarks>
+    /// A separate file from <see cref="PathsPath"/> on purpose: that cache holds paths starting
+    /// at its key, this one holds a path ending at its key. One file with two meanings would be
+    /// read wrongly by whichever accessor got it second.
+    /// </remarks>
+    private string LineagePath(int speciesId) =>
+        SysIO.Path.Combine(
+            _directory,
+            string.Create(CultureInfo.InvariantCulture, $"lineage-{speciesId}.json"));
 
     private string PathsPath(int speciesId) =>
         SysIO.Path.Combine(

@@ -19,21 +19,46 @@ public sealed record CompanionState
     /// player something.
     /// </summary>
     /// <remarks>
-    /// Version 1 introduced the budget economy. The save is shared by every editor window on
-    /// the machine — deliberately, so one companion appears everywhere — and separate installs
-    /// (Code, Insiders, Cursor) update independently, so two versions can meet over one file.
-    /// A build that does not know a field drops it on a round-trip: measured here as the
-    /// pre-economy 0.1.0 sidecar zeroing <see cref="Budget"/> every five minutes while a
-    /// newer build was crediting it. <see cref="CompanionStore"/> uses this to refuse writing
-    /// over a save from a build it does not understand.
+    /// Version 1 introduced the budget economy; version 2 replaced its single balance with the
+    /// earned/spent ledger. The save is shared by every editor window on the machine —
+    /// deliberately, so one companion appears everywhere — and separate installs (Code,
+    /// Insiders, Cursor) update independently, so two versions can meet over one file. A build
+    /// that does not know a field drops it on a round-trip: measured as the pre-economy 0.1.0
+    /// sidecar zeroing the balance every five minutes while a newer build was crediting it.
+    /// <see cref="CompanionStore"/> uses this to refuse writing over a save from a build it does
+    /// not understand.
     /// </remarks>
-    public const int SchemaVersion = 1;
+    public const int SchemaVersion = 2;
 
     /// <summary>Schema the loaded save was written by; zero for anything pre-economy.</summary>
     public int Version { get; init; }
 
-    /// <summary>Tokens earned and not yet spent. Nothing progresses without spending this.</summary>
-    public long Budget { get; init; }
+    /// <summary>
+    /// Tokens credited over the life of this save. Only ever increases.
+    /// </summary>
+    /// <remarks>
+    /// A ledger of two monotonic totals rather than one balance, so the numbers can be shown and
+    /// checked against each other. It also makes the pre-economy migration computable: under
+    /// auto-progress <see cref="TokensAtStage"/> recorded usage that had already been consumed,
+    /// so what a player has left over is the difference between what was counted and what was
+    /// eaten — a balance field alone carried no way to work that out. Both totals start at
+    /// migration; genuine lifetime figures are not recoverable and are not invented.
+    /// </remarks>
+    public long Earned { get; init; }
+
+    /// <summary>Tokens spent on eggs and growth. Only ever increases.</summary>
+    public long Spent { get; init; }
+
+    /// <summary>Tokens available to spend now.</summary>
+    [JsonIgnore]
+    public long Available => Math.Max(0, Earned - Spent);
+
+    /// <summary>
+    /// The single balance written by schema 1, read only so it can be folded into
+    /// <see cref="Earned"/> and then left at zero.
+    /// </summary>
+    [JsonPropertyName("budget")]
+    public long LegacyBudget { get; init; }
 
     /// <summary>
     /// Seeds for the eggs currently offered, one per egg. Empty while a companion is active.
@@ -71,11 +96,21 @@ public sealed record CompanionState
     public required long WatermarkTokens { get; init; }
 
     /// <summary>
-    /// Every species ever owned, in the order first seen — entered when an egg hatches and
-    /// again on each evolution, so it records what has been raised rather than only what was
-    /// finished.
+    /// Every species ever owned, in dex order — entered when an egg hatches and again on each
+    /// evolution, so it records what has been raised rather than only what was finished.
     /// </summary>
     public IReadOnlyList<int>? Pokedex { get; init; }
+
+    /// <summary>
+    /// True once the historical Pokédex backfill has run to completion.
+    /// </summary>
+    /// <remarks>
+    /// A one-time migration, not an ongoing job: every form is recorded as it is reached now, so
+    /// only lines completed before the Pokédex existed need reconstructing from their final
+    /// form. The flag is what stops a species whose chain cannot be resolved from being looked
+    /// up again on every refresh forever.
+    /// </remarks>
+    public bool PokedexBackfilled { get; init; }
 
     /// <summary>Lines carried all the way to their final form.</summary>
     public required IReadOnlyList<int> Graduated { get; init; }
@@ -101,7 +136,8 @@ public sealed record CompanionState
     public static CompanionState New(int seed) => new()
     {
         Version = SchemaVersion,
-        Budget = 0,
+        Earned = 0,
+        Spent = 0,
         OfferSeeds = CompanionEconomy.NewOffer(seed),
         SpeciesPath = [],
         StageIndex = 0,
@@ -155,16 +191,22 @@ public sealed record CompanionState
         };
     }
 
-    /// <summary>Records a species as owned. Order is first-seen, and entries are never repeated.</summary>
-    public CompanionState WithPokedexEntry(int speciesId)
-    {
-        var seen = Pokedex ?? [];
-        if (speciesId < 1 || seen.Contains(speciesId))
-        {
-            return this;
-        }
+    /// <summary>Records a species as owned. Entries are never repeated, and stay in dex order.</summary>
+    public CompanionState WithPokedexEntry(int speciesId) => WithPokedexEntries([speciesId]);
 
-        return this with { Pokedex = [.. seen, speciesId] };
+    /// <summary>
+    /// Records several species as owned at once — a whole line raised, or one reconstructed.
+    /// </summary>
+    public CompanionState WithPokedexEntries(IEnumerable<int> speciesIds)
+    {
+        ArgumentNullException.ThrowIfNull(speciesIds);
+
+        var seen = Pokedex ?? [];
+        var added = speciesIds.Where(id => id >= 1 && !seen.Contains(id)).Distinct().ToArray();
+
+        return added.Length == 0
+            ? this
+            : this with { Pokedex = [.. seen.Concat(added).Order()] };
     }
 
     /// <summary>
@@ -176,6 +218,7 @@ public sealed record CompanionState
         var path = (SpeciesPath ?? []).Where(static id => id is > 0 and <= 1400).ToArray();
         var offer = (OfferSeeds ?? []).Take(CompanionEconomy.OfferSize).ToArray();
         var owned = Pokedex ?? BackfilledPokedex(path);
+        var ledger = MigratedLedger();
 
         // Neither a companion nor an offer is a dead end rather than a valid state: there would
         // be nothing to spend on and nothing to choose.
@@ -184,8 +227,9 @@ public sealed record CompanionState
             return New(Seed) with
             {
                 Version = Math.Max(Version, SchemaVersion),
-                Budget = Math.Max(0, Budget),
-                Pokedex = Keep(owned),
+                Earned = ledger.Earned,
+                Spent = ledger.Spent,
+                Pokedex = [.. Keep(owned).Order()],
                 Graduated = Keep(Graduated),
                 WatermarkDay = WatermarkDay.Length <= 10 ? WatermarkDay : string.Empty,
                 WatermarkTokens = Math.Max(0, WatermarkTokens),
@@ -197,16 +241,48 @@ public sealed record CompanionState
             // Stamped on the way out, not on the way in: a save that reaches here has been
             // migrated to what this build understands, whatever it was written by.
             Version = Math.Max(Version, SchemaVersion),
-            Budget = Math.Max(0, Budget),
+            Earned = ledger.Earned,
+            Spent = ledger.Spent,
+            LegacyBudget = 0,
             OfferSeeds = offer,
             SpeciesPath = path,
             StageIndex = path.Length == 0 ? 0 : Math.Clamp(StageIndex, 0, path.Length - 1),
             TokensAtStage = Math.Clamp(TokensAtStage, 0, PokemonBalance.GraduationTotal(Rarity)),
             WatermarkTokens = Math.Max(0, WatermarkTokens),
             WatermarkDay = WatermarkDay.Length <= 10 ? WatermarkDay : string.Empty,
-            Pokedex = Keep(owned),
+            // Sorted, because a Pokédex is read by number. Graduated is left in completion
+            // order, which is real information rather than an artefact of insertion.
+            Pokedex = [.. Keep(owned).Order()],
             Graduated = Keep(Graduated),
         };
+    }
+
+    /// <summary>
+    /// The ledger for this save, migrating whatever the older schemas recorded.
+    /// </summary>
+    /// <remarks>
+    /// Schema 0 ran auto-progress, where <see cref="TokensAtStage"/> was usage already eaten by
+    /// the companion and <see cref="WatermarkTokens"/> was the usage counted toward it. What a
+    /// player has left is therefore the difference — measured on a real save as 304M counted
+    /// against 291M eaten, leaving 13M rather than the nothing a fresh ledger would have given
+    /// them. Clamped at zero because a companion grown over several days can have eaten more
+    /// than today's total.
+    ///
+    /// Schema 1 stored a plain balance, so that balance becomes the opening credit.
+    /// </remarks>
+    private (long Earned, long Spent) MigratedLedger()
+    {
+        if (Version >= 2)
+        {
+            var earned = Math.Max(0, Earned);
+            return (earned, Math.Clamp(Spent, 0, earned));
+        }
+
+        var opening = Version == 1
+            ? Math.Max(0, LegacyBudget)
+            : Math.Max(0, Math.Max(0, WatermarkTokens) - Math.Max(0, TokensAtStage));
+
+        return (opening, 0);
     }
 
     /// <summary>

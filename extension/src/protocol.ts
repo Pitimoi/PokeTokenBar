@@ -41,8 +41,12 @@ export interface ScanReport {
 }
 
 export interface CompanionInfo {
-  /** Tokens earned and not yet spent. */
+  /** Tokens available to spend now. */
   readonly budget: number;
+  /** Tokens credited since the ledger began. Only ever increases. */
+  readonly earned: number;
+  /** Tokens spent on eggs and growth. Only ever increases. */
+  readonly spent: number;
   /** What taking an egg costs. */
   readonly hatchPrice: number;
   /** What one press on a companion costs. */

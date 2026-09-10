@@ -3,8 +3,14 @@ namespace PokeTokenBar.Sidecar.Protocol;
 /// <summary>The companion as the host needs to render it.</summary>
 public sealed record CompanionResponse
 {
-    /// <summary>Tokens earned and not yet spent.</summary>
+    /// <summary>Tokens available to spend now.</summary>
     public required long Budget { get; init; }
+
+    /// <summary>Tokens credited since the ledger began. Only ever increases.</summary>
+    public required long Earned { get; init; }
+
+    /// <summary>Tokens spent on eggs and growth. Only ever increases.</summary>
+    public required long Spent { get; init; }
 
     /// <summary>What taking an egg costs.</summary>
     public required long HatchPrice { get; init; }

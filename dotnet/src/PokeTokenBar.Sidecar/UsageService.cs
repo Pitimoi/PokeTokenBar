@@ -151,6 +151,7 @@ internal sealed class UsageService : IUsageService
 
         var loaded = await ResolveTruncatedPathAsync(_companions.Load(), cancellationToken)
             .ConfigureAwait(false);
+        loaded = await BackfillPokedexAsync(loaded, cancellationToken).ConfigureAwait(false);
 
         var credited = CompanionKeeper.CreditBudget(loaded, today);
         _companions.Save(credited);
@@ -158,6 +159,51 @@ internal sealed class UsageService : IUsageService
         return await RenderAsync(
             new SpendResult { State = credited, Refusal = SpendRefusal.None },
             cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Most completed lines to reconstruct. A save holding more than this predates the Pokédex
+    /// by months of heavy use; the pass is capped so it terminates rather than retrying forever.
+    /// </summary>
+    private const int MaxBackfilledLineages = 12;
+
+    /// <summary>
+    /// Fills in the forms raised on the way to each completed line, for saves written before
+    /// the Pokédex existed.
+    /// </summary>
+    /// <remarks>
+    /// A completed line is recorded by its final form alone, so a Pokédex reconstructed from it
+    /// shows Venusaur with no Bulbasaur or Ivysaur before it — species that demonstrably were
+    /// raised. Runs once: it is flagged done only when every line resolved, so a transient
+    /// network failure is retried on the next refresh while a permanent one stops being asked.
+    /// Lookups are cached on disk, so a repeat pass after a partial failure costs nothing for
+    /// the lines that already succeeded.
+    /// </remarks>
+    private async ValueTask<CompanionState> BackfillPokedexAsync(
+        CompanionState state,
+        CancellationToken cancellationToken)
+    {
+        if (state.PokedexBackfilled || state.Graduated.Count == 0)
+        {
+            return state;
+        }
+
+        var next = state;
+        var unresolved = false;
+
+        foreach (var species in state.Graduated.Take(MaxBackfilledLineages))
+        {
+            var lineage = await _library.LineageOfAsync(species, cancellationToken).ConfigureAwait(false);
+            if (lineage.Count == 0)
+            {
+                unresolved = true;
+                continue;
+            }
+
+            next = next.WithPokedexEntries(lineage);
+        }
+
+        return unresolved ? next : next with { PokedexBackfilled = true };
     }
 
     /// <summary>
@@ -231,9 +277,10 @@ internal sealed class UsageService : IUsageService
 
         // Static sprites for the Pokédex: a quarter the size of the animated ones, and a grid
         // of animations would be noise rather than charm. Bounded because the Pokédex grows
-        // without limit and each miss is a request.
+        // without limit and each miss is a request. Taken in the order the host renders them,
+        // so the cap only ever costs artwork at the end of the list rather than in the middle.
         var collectionSprites = new Dictionary<int, string>();
-        foreach (var id in pokedex.Reverse().Take(CollectionSpriteLimit))
+        foreach (var id in pokedex.Order().Take(CollectionSpriteLimit))
         {
             var art = await _sprites
                 .GetAsync(new SpriteRequest { SpeciesId = id }, cancellationToken)
@@ -247,13 +294,15 @@ internal sealed class UsageService : IUsageService
 
         return new CompanionResponse
         {
-            Budget = state.Budget,
+            Budget = state.Available,
+            Earned = state.Earned,
+            Spent = state.Spent,
             HatchPrice = CompanionEconomy.HatchPrice,
             ClickCost = CompanionEconomy.ClickCost,
             OfferCount = state.OfferSeeds?.Count ?? 0,
             HasCompanion = state.HasCompanion,
-            CanHatch = !state.HasCompanion && state.Budget >= CompanionEconomy.HatchPrice,
-            CanAdvance = state.HasCompanion && state.Budget >= CompanionEconomy.ClickCost,
+            CanHatch = !state.HasCompanion && state.Available >= CompanionEconomy.HatchPrice,
+            CanAdvance = state.HasCompanion && state.Available >= CompanionEconomy.ClickCost,
             Refusal = spend.Refusal == SpendRefusal.None ? string.Empty : spend.Refusal.ToString(),
             SpeciesId = state.HasCompanion ? companion.CurrentSpeciesId : 0,
             SpeciesName = state.HasCompanion

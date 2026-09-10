@@ -7,7 +7,7 @@ internal static class GameStates
 {
     /// <summary>A new game with enough banked to act.</summary>
     public static CompanionState Funded(long budget = 1_000_000_000) =>
-        CompanionState.New(1) with { Budget = budget };
+        CompanionState.New(1) with { Earned = budget };
 
     /// <summary>A funded game with a three-form common line already active.</summary>
     public static CompanionState WithCompanion(long budget = 1_000_000_000) =>
@@ -73,7 +73,7 @@ public sealed class BudgetCreditTests
     {
         var credited = CompanionKeeper.CreditBudget(CompanionState.New(1), "2026-09-09", 1_000_000);
 
-        Assert.Equal(1_000_000, credited.Budget);
+        Assert.Equal(1_000_000, credited.Available);
         Assert.Equal("2026-09-09", credited.WatermarkDay);
         Assert.Equal(1_000_000, credited.WatermarkTokens);
     }
@@ -87,7 +87,7 @@ public sealed class BudgetCreditTests
 
         var second = CompanionKeeper.CreditBudget(first, "2026-09-09", 1_500_000);
 
-        Assert.Equal(1_500_000, second.Budget);
+        Assert.Equal(1_500_000, second.Available);
     }
 
     [Fact]
@@ -97,7 +97,7 @@ public sealed class BudgetCreditTests
 
         var second = CompanionKeeper.CreditBudget(first, "2026-09-09", 1_000_000);
 
-        Assert.Equal(first.Budget, second.Budget);
+        Assert.Equal(first.Available, second.Available);
     }
 
     [Fact]
@@ -108,7 +108,7 @@ public sealed class BudgetCreditTests
 
         var today = CompanionKeeper.CreditBudget(yesterday, "2026-09-10", 2_000_000);
 
-        Assert.Equal(7_000_000, today.Budget);
+        Assert.Equal(7_000_000, today.Available);
         Assert.Equal("2026-09-10", today.WatermarkDay);
     }
 
@@ -121,7 +121,7 @@ public sealed class BudgetCreditTests
 
         var second = CompanionKeeper.CreditBudget(first, "2026-09-09", 1_000);
 
-        Assert.Equal(first.Budget, second.Budget);
+        Assert.Equal(first.Available, second.Available);
     }
 
     [Fact]
@@ -137,7 +137,7 @@ public sealed class BudgetCreditTests
         Assert.Equal(0, credited.StageIndex);
         Assert.Equal(state.SpeciesPath, credited.SpeciesPath);
         Assert.Empty(credited.Graduated);
-        Assert.Equal(10_000_000_000, credited.Budget);
+        Assert.Equal(10_000_000_000, credited.Available);
     }
 
     [Fact]
@@ -159,7 +159,7 @@ public sealed class EggChoiceTests
 
         Assert.False(state.HasCompanion);
         Assert.Equal(CompanionEconomy.OfferSize, state.OfferSeeds!.Count);
-        Assert.Equal(0, state.Budget);
+        Assert.Equal(0, state.Available);
         Assert.Empty(state.Pokedex!);
     }
 
@@ -184,7 +184,7 @@ public sealed class EggChoiceTests
         var spend = CompanionKeeper.ChooseEgg(GameStates.Funded(7_000_000), 1);
 
         Assert.True(spend.Accepted);
-        Assert.Equal(2_000_000, spend.State.Budget);
+        Assert.Equal(2_000_000, spend.State.Available);
     }
 
     [Fact]
@@ -215,7 +215,7 @@ public sealed class EggChoiceTests
         var spend = CompanionKeeper.ChooseEgg(state, 0);
 
         Assert.Equal(SpendRefusal.NotEnoughBudget, spend.Refusal);
-        Assert.Equal(state.Budget, spend.State.Budget);
+        Assert.Equal(state.Available, spend.State.Available);
         Assert.Equal(state.OfferSeeds, spend.State.OfferSeeds);
     }
 
@@ -231,7 +231,7 @@ public sealed class EggChoiceTests
         var spend = CompanionKeeper.ChooseEgg(GameStates.Funded(), index);
 
         Assert.Equal(SpendRefusal.NoSuchEgg, spend.Refusal);
-        Assert.Equal(1_000_000_000, spend.State.Budget);
+        Assert.Equal(1_000_000_000, spend.State.Available);
         Assert.False(spend.State.HasCompanion);
     }
 
@@ -270,7 +270,7 @@ public sealed class AdvanceTests
         var spend = CompanionKeeper.Advance(state);
 
         Assert.Equal(SpendRefusal.NotEnoughBudget, spend.Refusal);
-        Assert.Equal(state.Budget, spend.State.Budget);
+        Assert.Equal(state.Available, spend.State.Available);
         Assert.Equal(0, spend.State.TokensAtStage);
     }
 
@@ -280,7 +280,7 @@ public sealed class AdvanceTests
         var spend = CompanionKeeper.Advance(GameStates.WithCompanion(100_000_000));
 
         Assert.True(spend.Accepted);
-        Assert.Equal(100_000_000 - CompanionEconomy.ClickCost, spend.State.Budget);
+        Assert.Equal(100_000_000 - CompanionEconomy.ClickCost, spend.State.Available);
         Assert.Equal(CompanionEconomy.ClickCost, spend.State.TokensAtStage);
         Assert.Empty(spend.Evolutions);
     }
@@ -298,6 +298,28 @@ public sealed class AdvanceTests
         Assert.Equal([2], spend.Evolutions);
         Assert.Equal(1, spend.State.StageIndex);
         Assert.Contains(2, spend.State.Pokedex!);
+    }
+
+    [Fact]
+    public void ThePokedexIsHeldInDexOrderNotArrivalOrder()
+    {
+        // A Pokédex is read by number. Eevee raised before Bulbasaur must still list second.
+        var state = GameStates.WithCompanion() with { Pokedex = [133, 1] };
+
+        var spend = CompanionKeeper.Advance(state with
+        {
+            TokensAtStage = PokemonBalance.PhaseThreshold(Rarity.Common, 3, 0) - 1,
+        });
+
+        Assert.Equal([1, 2, 133], spend.State.Pokedex);
+    }
+
+    [Fact]
+    public void AWholeLineCanBeRecordedAtOnce()
+    {
+        var state = GameStates.WithCompanion() with { Pokedex = [133] };
+
+        Assert.Equal([1, 2, 3, 133], state.WithPokedexEntries([3, 1, 2]).Pokedex);
     }
 
     [Fact]
@@ -343,7 +365,7 @@ public sealed class AdvanceTests
 
         var spend = CompanionKeeper.Advance(state);
 
-        Assert.Equal(500_000_000 - CompanionEconomy.ClickCost, spend.State.Budget);
+        Assert.Equal(500_000_000 - CompanionEconomy.ClickCost, spend.State.Available);
         Assert.Equal([1, 2, 3], spend.State.Pokedex);
     }
 
@@ -404,14 +426,14 @@ public sealed class CompanionStateSanitizerTests
         {
             SpeciesPath = [],
             OfferSeeds = [],
-            Budget = 40_000_000,
+            Earned = 40_000_000,
             Pokedex = [4, 5],
             Graduated = [6],
         };
 
         var repaired = broken.Sanitized();
 
-        Assert.Equal(40_000_000, repaired.Budget);
+        Assert.Equal(40_000_000, repaired.Available);
         Assert.Equal([4, 5], repaired.Pokedex);
         Assert.Equal([6], repaired.Graduated);
     }
@@ -431,12 +453,12 @@ public sealed class CompanionStateSanitizerTests
         {
             TokensAtStage = -500,
             WatermarkTokens = -1,
-            Budget = -9,
+            Earned = -9,
         }).Sanitized();
 
         Assert.Equal(0, repaired.TokensAtStage);
         Assert.Equal(0, repaired.WatermarkTokens);
-        Assert.Equal(0, repaired.Budget);
+        Assert.Equal(0, repaired.Available);
     }
 
     [Fact]
@@ -470,7 +492,8 @@ public sealed class CompanionStoreTests
 
         Assert.Equal(original.SpeciesPath, loaded.SpeciesPath);
         Assert.Equal(original.TokensAtStage, loaded.TokensAtStage);
-        Assert.Equal(original.Budget, loaded.Budget);
+        Assert.Equal(original.Available, loaded.Available);
+        Assert.Equal(original.Spent, loaded.Spent);
         Assert.Equal(original.Pokedex, loaded.Pokedex);
         Assert.Equal(original.Rarity, loaded.Rarity);
         Assert.Equal(original.WatermarkDay, loaded.WatermarkDay);
@@ -541,7 +564,7 @@ public sealed class CompanionStoreTests
         Assert.InRange(loaded.StageIndex, 0, 2);
         Assert.Equal(0, loaded.TokensAtStage);
         Assert.Equal(0, loaded.WatermarkTokens);
-        Assert.Equal(0, loaded.Budget);
+        Assert.Equal(0, loaded.Available);
     }
 
     [Fact]
@@ -593,10 +616,10 @@ public sealed class CompanionStoreTests
             """{"speciesPath":[133,134],"stageIndex":0,"tokensAtStage":0,"rarity":"Uncommon","seed":77,"watermarkDay":"","watermarkTokens":0,"graduated":[]}""");
         var store = new CompanionStore(directory.File);
 
-        store.Save(CompanionState.New(2) with { Budget = 999 });
+        store.Save(CompanionState.New(2) with { Earned = 999 });
 
         Assert.False(store.RefusedToDowngrade);
-        Assert.Equal(999, new CompanionStore(directory.File).Load().Budget);
+        Assert.Equal(999, new CompanionStore(directory.File).Load().Available);
     }
 
     [Fact]
@@ -657,7 +680,75 @@ public sealed class SaveMigrationTests
         Assert.Equal([133, 134], loaded.SpeciesPath);
         Assert.Equal(1, loaded.StageIndex);
         Assert.Equal([3], loaded.Graduated);
-        Assert.Equal(0, loaded.Budget);
+        // Counted 999,999,999 and 1,200,000 of it already eaten by auto-progress.
+        Assert.Equal(998_799_999, loaded.Available);
+    }
+
+    [Fact]
+    public void TheLeftoverFromAutoProgressIsCreditedRatherThanLost()
+    {
+        // Measured against a real save: under auto-progress tokensAtStage was usage the
+        // companion had already consumed and watermarkTokens was the usage counted toward it,
+        // so what the player still has is the difference. Starting the ledger at zero would
+        // quietly confiscate a day's earnings.
+        using var directory = new TempMigrationDirectory();
+        File.WriteAllText(
+            directory.File,
+            """{"speciesPath":[133,134],"stageIndex":0,"tokensAtStage":308000000,"rarity":"Uncommon","seed":77,"watermarkDay":"2026-09-10","watermarkTokens":350000000,"graduated":[],"pathResolved":true}""");
+
+        var loaded = new CompanionStore(directory.File).Load();
+
+        Assert.Equal(42_000_000, loaded.Available);
+        Assert.Equal(42_000_000, loaded.Earned);
+        Assert.Equal(0, loaded.Spent);
+    }
+
+    [Fact]
+    public void ACompanionGrownOverDaysDoesNotProduceANegativeLedger()
+    {
+        // Several days of growth can exceed today's total, and a negative balance would either
+        // block every spend or wrap into a fortune.
+        using var directory = new TempMigrationDirectory();
+        File.WriteAllText(
+            directory.File,
+            """{"speciesPath":[1,2,3],"stageIndex":2,"tokensAtStage":700000000,"rarity":"Common","seed":1,"watermarkDay":"2026-09-10","watermarkTokens":5000000,"graduated":[],"pathResolved":true}""");
+
+        var loaded = new CompanionStore(directory.File).Load();
+
+        Assert.Equal(0, loaded.Available);
+        Assert.Equal(0, loaded.Earned);
+    }
+
+    [Fact]
+    public void ABalanceFromTheFirstEconomyBuildBecomesTheOpeningCredit()
+    {
+        // Schema 1 stored a single balance and no ledger; it carries over as earned-but-unspent
+        // rather than being re-derived, because by then tokensAtStage no longer meant consumed
+        // usage.
+        using var directory = new TempMigrationDirectory();
+        File.WriteAllText(
+            directory.File,
+            """{"version":1,"budget":4034791,"speciesPath":[133,134],"stageIndex":0,"tokensAtStage":291118248,"rarity":"Uncommon","seed":77,"watermarkDay":"2026-09-10","watermarkTokens":304183929,"graduated":[3],"pathResolved":true,"pokedex":[3,133]}""");
+
+        var loaded = new CompanionStore(directory.File).Load();
+
+        Assert.Equal(4_034_791, loaded.Available);
+        Assert.Equal(0, loaded.Spent);
+    }
+
+    [Fact]
+    public void TheLegacyBalanceIsNotLeftInTheFileToBeCountedTwice()
+    {
+        using var directory = new TempMigrationDirectory();
+        File.WriteAllText(
+            directory.File,
+            """{"version":1,"budget":5000,"speciesPath":[1,2,3],"stageIndex":0,"tokensAtStage":0,"rarity":"Common","seed":1,"watermarkDay":"","watermarkTokens":0,"graduated":[]}""");
+        var store = new CompanionStore(directory.File);
+
+        store.Save(store.Load());
+
+        Assert.Contains("\"budget\": 0", File.ReadAllText(directory.File), StringComparison.Ordinal);
+        Assert.Equal(5_000, new CompanionStore(directory.File).Load().Available);
     }
 
     [Fact]
@@ -718,12 +809,12 @@ public sealed class SaveMigrationTests
         using var directory = new TempMigrationDirectory();
         File.WriteAllText(
             directory.File,
-            """{"speciesPath":[],"stageIndex":0,"tokensAtStage":0,"budget":9000000,"rarity":"Common","seed":5,"watermarkDay":"","watermarkTokens":0,"graduated":[]}""");
+            """{"version":1,"speciesPath":[],"stageIndex":0,"tokensAtStage":0,"budget":9000000,"rarity":"Common","seed":5,"watermarkDay":"","watermarkTokens":0,"graduated":[]}""");
 
         var loaded = new CompanionStore(directory.File).Load();
 
         Assert.Equal(CompanionEconomy.OfferSize, loaded.OfferSeeds!.Count);
-        Assert.Equal(9_000_000, loaded.Budget);
+        Assert.Equal(9_000_000, loaded.Available);
     }
 
     private sealed class TempMigrationDirectory : IDisposable

@@ -44,6 +44,8 @@ function response(overrides = {}) {
     scan: { degraded: false },
     companion: {
       budget: 500_000_000,
+      earned: 1_200_000_000,
+      spent: 700_000_000,
       hatchPrice: 5_000_000,
       clickCost: 25_000_000,
       offerCount: 0,
@@ -215,9 +217,11 @@ test('renders a waiting state before the first response', () => {
   assert.equal(view.webview.options.localResourceRoots.length, 0);
 });
 
-test('shows what is banked', () => {
-  const { html } = render({ budget: 250_000_000 });
+test('shows what is banked, and the ledger it came from', () => {
+  const { html } = render({ budget: 250_000_000, earned: 1_000_000_000, spent: 750_000_000 });
   assert.match(html, /class="budget">250\.0M</);
+  assert.match(html, /1\.0B earned/);
+  assert.match(html, /750\.0M spent/);
 });
 
 test('offers one clickable egg per egg on offer', () => {
@@ -271,9 +275,11 @@ test('shows an empty state before anything is collected', () => {
   assert.doesNotMatch(html, /class="pokedex"/);
 });
 
-test('renders the pokedex as a scrolling list, newest first', () => {
+test('renders the pokedex as a scrolling list in dex order', () => {
   const { html } = render({
-    pokedex: [3, 6, 9],
+    // Deliberately out of order, and not merely reversed, so neither sort direction nor
+    // insertion order can pass by accident.
+    pokedex: [9, 3, 6],
     graduated: [3],
     names: { 3: 'venusaur', 6: 'charizard', 9: 'blastoise' },
     collectionSprites: { 3: '3-s.png', 6: '6-s.png', 9: '9-s.png' },
@@ -285,10 +291,19 @@ test('renders the pokedex as a scrolling list, newest first', () => {
 
   // Scoped to the list: the active companion's own name appears in the heading above it.
   const list = html.slice(html.indexOf('class="pokedex"'));
-  const order = ['Blastoise', 'Charizard', 'Venusaur'].map((n) => list.indexOf(n));
+  const order = ['Venusaur', 'Charizard', 'Blastoise'].map((n) => list.indexOf(n));
   assert.ok(order.every((at) => at >= 0), 'every owned species must be listed');
-  assert.ok(order[0] < order[1] && order[1] < order[2], 'newest owned must come first');
+  assert.ok(order[0] < order[1] && order[1] < order[2], 'must read #003, #006, #009');
   assert.match(html, /9-s\.png/);
+});
+
+test('a pokedex past ten entries still sorts numerically, not as text', () => {
+  const { html } = render({ pokedex: [25, 3, 133, 9], names: {}, collectionSprites: {} });
+
+  const list = html.slice(html.indexOf('class="pokedex"'));
+  const order = ['#003', '#009', '#025', '#133'].map((dex) => list.indexOf(dex));
+  assert.ok(order.every((at) => at >= 0));
+  assert.deepEqual([...order].sort((a, b) => a - b), order, 'ids must ascend numerically');
 });
 
 test('the pokedex holds every form raised, marking only completed lines', () => {

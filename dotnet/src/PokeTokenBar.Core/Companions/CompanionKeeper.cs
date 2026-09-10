@@ -63,7 +63,7 @@ public static class CompanionKeeper
 
         return current with
         {
-            Budget = current.Budget + delta,
+            Earned = current.Earned + delta,
             WatermarkDay = today,
             WatermarkTokens = observed,
         };
@@ -96,7 +96,7 @@ public static class CompanionKeeper
             return SpendResult.Refuse(current, SpendRefusal.NoSuchEgg);
         }
 
-        if (current.Budget < CompanionEconomy.HatchPrice)
+        if (current.Available < CompanionEconomy.HatchPrice)
         {
             return SpendResult.Refuse(current, SpendRefusal.NotEnoughBudget);
         }
@@ -108,7 +108,7 @@ public static class CompanionKeeper
             // The other two eggs go with the offer, so the choice has weight.
             State = current with
             {
-                Budget = current.Budget - CompanionEconomy.HatchPrice,
+                Spent = current.Spent + CompanionEconomy.HatchPrice,
                 OfferSeeds = [],
                 Seed = seed,
             },
@@ -132,7 +132,7 @@ public static class CompanionKeeper
             return SpendResult.Refuse(current, SpendRefusal.NoCompanion);
         }
 
-        if (current.Budget < CompanionEconomy.ClickCost)
+        if (current.Available < CompanionEconomy.ClickCost)
         {
             return SpendResult.Refuse(current, SpendRefusal.NotEnoughBudget);
         }
@@ -141,7 +141,7 @@ public static class CompanionKeeper
 
         var next = current with
         {
-            Budget = current.Budget - CompanionEconomy.ClickCost,
+            Spent = current.Spent + CompanionEconomy.ClickCost,
             SpeciesPath = advance.Companion.SpeciesPath,
             StageIndex = advance.Companion.StageIndex,
             TokensAtStage = advance.Companion.TokensAtStage,

@@ -90,7 +90,8 @@ export class CompanionViewProvider implements vscode.WebviewViewProvider {
 
     const body = `
       <div class="budget">${escapeHtml(formatTokens(companion.budget))}</div>
-      <div class="meta">banked · spend it below</div>
+      <div class="meta">banked · ${escapeHtml(formatTokens(companion.earned))} earned ·
+        ${escapeHtml(formatTokens(companion.spent))} spent</div>
       ${companion.hasCompanion ? this.companion(companion, webview) : this.offer(companion)}
       ${this.refusal(companion)}
       <table>
@@ -200,7 +201,7 @@ export class CompanionViewProvider implements vscode.WebviewViewProvider {
     }
 
     const rows = [...owned]
-      .reverse()
+      .sort((left, right) => left - right)
       .map((id) => {
         const label = speciesLabel(id, names[String(id)]);
         const file = sprites[String(id)];
