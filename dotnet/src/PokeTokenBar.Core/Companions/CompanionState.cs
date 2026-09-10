@@ -1,50 +1,67 @@
 namespace PokeTokenBar.Core.Companions;
 
 /// <summary>
-/// Everything persisted about a companion between runs.
+/// Everything persisted about the game between runs.
 /// </summary>
+/// <remarks>
+/// Fields added after the first release are deliberately not <c>required</c>, and are treated as
+/// possibly null in <see cref="Sanitized"/>. A property initialiser does not survive
+/// source-generated deserialisation, so a save written before a field existed yields null rather
+/// than the initialiser's value — and marking one <c>required</c> would make every older save
+/// fail to parse and be quarantined instead of migrated.
+/// </remarks>
 public sealed record CompanionState
 {
+    /// <summary>Tokens earned and not yet spent. Nothing progresses without spending this.</summary>
+    public long Budget { get; init; }
+
+    /// <summary>
+    /// Seeds for the eggs currently offered, one per egg. Empty while a companion is active.
+    /// The species behind each is derived from its seed only when chosen, so nothing is
+    /// revealed early and a restart cannot redraw a choice not yet made.
+    /// </summary>
+    public IReadOnlyList<int>? OfferSeeds { get; init; }
+
+    /// <summary>The active companion's line. Empty means no companion, only an offer.</summary>
     public required IReadOnlyList<int> SpeciesPath { get; init; }
 
     public required int StageIndex { get; init; }
 
+    /// <summary>Tokens spent on the current form.</summary>
     public required long TokensAtStage { get; init; }
 
     public required Rarity Rarity { get; init; }
 
-    /// <summary>Seed the line was drawn from, so a restart cannot redraw a different species.</summary>
+    /// <summary>Seed the active line was drawn from.</summary>
     public required int Seed { get; init; }
 
     /// <summary>
-    /// Local day the watermark below belongs to. Progress is driven by the growth of today's
-    /// total, so the watermark has to be discarded when the day rolls over.
+    /// False when the evolution path could not be fetched and may be truncated, so a later
+    /// refresh should re-attempt it.
+    /// </summary>
+    public bool PathResolved { get; init; }
+
+    /// <summary>
+    /// Local day the watermark belongs to. Budget is credited from the growth of today's total,
+    /// so the watermark has to be discarded when the day rolls over.
     /// </summary>
     public required string WatermarkDay { get; init; }
 
-    /// <summary>Today's token total the last time progress was applied.</summary>
+    /// <summary>Today's token total the last time budget was credited.</summary>
     public required long WatermarkTokens { get; init; }
 
-    /// <summary>Lines completed so far, oldest first — the beginnings of a collection.</summary>
+    /// <summary>
+    /// Every species ever owned, in the order first seen — entered when an egg hatches and
+    /// again on each evolution, so it records what has been raised rather than only what was
+    /// finished.
+    /// </summary>
+    public IReadOnlyList<int>? Pokedex { get; init; }
+
+    /// <summary>Lines carried all the way to their final form.</summary>
     public required IReadOnlyList<int> Graduated { get; init; }
 
-    /// <summary>
-    /// True while this is still an egg.
-    /// </summary>
-    /// <remarks>
-    /// Phrased as "is an egg" rather than "has hatched" so that its absence means hatched. A
-    /// save written before eggs existed has no such field, and a property initializer does not
-    /// survive source-generated deserialization — the default value itself has to be the
-    /// answer for legacy data, or every established companion regresses into an egg.
-    /// </remarks>
-    public bool IsEgg { get; init; }
-
-    /// <summary>
-    /// False when the evolution path could not be fetched and may be truncated. Not required,
-    /// so a save written before this existed reads as unresolved and gets one re-attempt rather
-    /// than staying wrong forever.
-    /// </summary>
-    public bool PathResolved { get; init; }
+    /// <summary>True when there is a companion to spend on, rather than an offer to choose from.</summary>
+    public bool HasCompanion => SpeciesPath.Count > 0;
 
     public Companion ToCompanion() => new()
     {
@@ -54,56 +71,48 @@ public sealed record CompanionState
         Rarity = Rarity,
     };
 
-    public static CompanionState Hatch(int seed)
+    /// <summary>A brand new game: no companion, three eggs on offer, nothing banked.</summary>
+    public static CompanionState New(int seed) => new()
     {
-        var line = EvolutionLines.FromSeed(seed);
-        return new CompanionState
-        {
-            SpeciesPath = line.SpeciesPath,
-            StageIndex = 0,
-            TokensAtStage = 0,
-            Rarity = line.Rarity,
-            Seed = seed,
-            WatermarkDay = string.Empty,
-            WatermarkTokens = 0,
-            Graduated = [],
-            PathResolved = false,
-            IsEgg = true,
-        };
-    }
+        Budget = 0,
+        OfferSeeds = CompanionEconomy.NewOffer(seed),
+        SpeciesPath = [],
+        StageIndex = 0,
+        TokensAtStage = 0,
+        Rarity = Rarity.Common,
+        Seed = seed,
+        PathResolved = false,
+        WatermarkDay = string.Empty,
+        WatermarkTokens = 0,
+        Pokedex = [],
+        Graduated = [],
+    };
 
-    /// <summary>
-    /// Replaces the line while keeping identity and history: the seed, the day watermark and
-    /// the collection all survive, because only the species being raised is changing.
-    /// </summary>
+    /// <summary>Adopts a drawn line as the active companion and records it in the Pokédex.</summary>
     public CompanionState WithLine(EvolutionLine line)
     {
         ArgumentNullException.ThrowIfNull(line);
 
-        return line.SpeciesPath.Count == 0
-            ? this
-            : this with
-            {
-                SpeciesPath = line.SpeciesPath,
-                Rarity = line.Rarity,
-                StageIndex = 0,
-                TokensAtStage = 0,
-                PathResolved = line.Resolved,
-                // A newly drawn line arrives as an egg. The species is already decided, and
-                // withheld until it hatches — the waiting is the point.
-                IsEgg = true,
-            };
+        if (line.SpeciesPath.Count == 0)
+        {
+            return this;
+        }
+
+        return (this with
+        {
+            SpeciesPath = line.SpeciesPath,
+            Rarity = line.Rarity,
+            StageIndex = 0,
+            TokensAtStage = 0,
+            PathResolved = line.Resolved,
+        }).WithPokedexEntry(line.SpeciesPath[0]);
     }
 
-    /// <summary>
-    /// Extends a previously truncated path in place, keeping the companion's progress. Only the
-    /// tail grows, so the stage it has already reached stays valid.
-    /// </summary>
+    /// <summary>Extends a previously truncated path, keeping the stage already reached.</summary>
     public CompanionState WithResolvedPath(EvolutionLine line)
     {
         ArgumentNullException.ThrowIfNull(line);
 
-        // The replacement must start with the same species, or it is a different companion.
         if (line.SpeciesPath.Count == 0
             || SpeciesPath.Count == 0
             || line.SpeciesPath[0] != SpeciesPath[0])
@@ -119,33 +128,55 @@ public sealed record CompanionState
         };
     }
 
+    /// <summary>Records a species as owned. Order is first-seen, and entries are never repeated.</summary>
+    public CompanionState WithPokedexEntry(int speciesId)
+    {
+        var seen = Pokedex ?? [];
+        if (speciesId < 1 || seen.Contains(speciesId))
+        {
+            return this;
+        }
+
+        return this with { Pokedex = [.. seen, speciesId] };
+    }
+
     /// <summary>
-    /// Repairs values that cannot be right.
+    /// Repairs values that cannot be right. Applied on every load, not only on import: clamping
+    /// solely at the boundary leaves an already-bad file to reload badly forever.
     /// </summary>
-    /// <remarks>
-    /// Applied on every load, not only when importing. The original learned this the hard way:
-    /// clamping solely at the import boundary leaves already-persisted extreme values to crash
-    /// on each subsequent launch.
-    /// </remarks>
     public CompanionState Sanitized()
     {
-        var path = SpeciesPath is { Count: > 0 }
-            ? SpeciesPath.Where(static id => id is > 0 and <= 1400).ToArray()
-            : [];
+        var path = (SpeciesPath ?? []).Where(static id => id is > 0 and <= 1400).ToArray();
+        var offer = (OfferSeeds ?? []).Take(CompanionEconomy.OfferSize).ToArray();
 
-        if (path.Length == 0)
+        // Neither a companion nor an offer is a dead end rather than a valid state: there would
+        // be nothing to spend on and nothing to choose.
+        if (path.Length == 0 && offer.Length == 0)
         {
-            return Hatch(Seed);
+            return New(Seed) with
+            {
+                Budget = Math.Max(0, Budget),
+                Pokedex = Keep(Pokedex),
+                Graduated = Keep(Graduated),
+                WatermarkDay = WatermarkDay.Length <= 10 ? WatermarkDay : string.Empty,
+                WatermarkTokens = Math.Max(0, WatermarkTokens),
+            };
         }
 
         return this with
         {
+            Budget = Math.Max(0, Budget),
+            OfferSeeds = offer,
             SpeciesPath = path,
-            StageIndex = Math.Clamp(StageIndex, 0, path.Length - 1),
+            StageIndex = path.Length == 0 ? 0 : Math.Clamp(StageIndex, 0, path.Length - 1),
             TokensAtStage = Math.Clamp(TokensAtStage, 0, PokemonBalance.GraduationTotal(Rarity)),
             WatermarkTokens = Math.Max(0, WatermarkTokens),
             WatermarkDay = WatermarkDay.Length <= 10 ? WatermarkDay : string.Empty,
-            Graduated = Graduated?.Where(static id => id is > 0 and <= 1400).Take(500).ToArray() ?? [],
+            Pokedex = Keep(Pokedex),
+            Graduated = Keep(Graduated),
         };
     }
+
+    private static int[] Keep(IReadOnlyList<int>? ids) =>
+        (ids ?? []).Where(static id => id is > 0 and <= 1400).Take(2000).ToArray();
 }

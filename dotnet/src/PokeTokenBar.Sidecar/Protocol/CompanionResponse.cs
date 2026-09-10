@@ -3,11 +3,32 @@ namespace PokeTokenBar.Sidecar.Protocol;
 /// <summary>The companion as the host needs to render it.</summary>
 public sealed record CompanionResponse
 {
+    /// <summary>Tokens earned and not yet spent.</summary>
+    public required long Budget { get; init; }
+
+    /// <summary>What taking an egg costs.</summary>
+    public required long HatchPrice { get; init; }
+
+    /// <summary>What one press on a companion costs.</summary>
+    public required long ClickCost { get; init; }
+
     /// <summary>
-    /// True while this is still an egg. The species is decided but deliberately withheld —
-    /// <see cref="SpeciesId"/> is zero and the sprite absent — so the host cannot spoil it.
+    /// How many eggs are on offer. Nothing else about them is sent: the species behind each is
+    /// derived from its seed only once chosen, so there is nothing here to spoil the choice.
     /// </summary>
-    public required bool IsEgg { get; init; }
+    public required int OfferCount { get; init; }
+
+    /// <summary>False while there is only an offer to choose from.</summary>
+    public required bool HasCompanion { get; init; }
+
+    /// <summary>True when the budget covers taking an egg.</summary>
+    public required bool CanHatch { get; init; }
+
+    /// <summary>True when there is a companion and the budget covers a press.</summary>
+    public required bool CanAdvance { get; init; }
+
+    /// <summary>Why the last spend was refused; empty when it was accepted or none was asked for.</summary>
+    public string Refusal { get; init; } = string.Empty;
 
     public required int SpeciesId { get; init; }
 
@@ -34,27 +55,28 @@ public sealed record CompanionResponse
     /// <summary>Forms reached so far, for drawing the line.</summary>
     public required IReadOnlyList<int> ReachedForms { get; init; }
 
-    /// <summary>Species evolved into during this refresh, so the host can announce it.</summary>
+    /// <summary>Species evolved into by the spend that produced this response.</summary>
     public required IReadOnlyList<int> JustEvolved { get; init; }
 
-    /// <summary>Set when a line completed on this refresh.</summary>
+    /// <summary>Set when a line completed and retired.</summary>
     public int? JustGraduated { get; init; }
 
-    /// <summary>Set to the revealed species when an egg hatched on this refresh.</summary>
+    /// <summary>Set to the revealed species when an egg was taken and hatched.</summary>
     public int? JustHatched { get; init; }
 
-    public required int GraduatedCount { get; init; }
+    /// <summary>Every species ever owned, in the order first seen — the Pokédex.</summary>
+    public required IReadOnlyList<int> Pokedex { get; init; }
 
-    /// <summary>Species ids collected so far, oldest first.</summary>
+    /// <summary>Lines carried all the way to their final form.</summary>
     public required IReadOnlyList<int> Graduated { get; init; }
 
     /// <summary>Names for every species mentioned in this response, keyed by dex id.</summary>
     public required IReadOnlyDictionary<int, string> Names { get; init; }
 
     /// <summary>
-    /// Cache-relative sprite filenames for the collection, keyed by dex id. Filenames only,
-    /// for the same reason as <see cref="SpriteFileName"/>: the host validates each before
-    /// joining it to <see cref="SpriteDirectory"/>.
+    /// Cache-relative sprite filenames for the Pokédex, keyed by dex id. Filenames only, for
+    /// the same reason as <see cref="SpriteFileName"/>: the host validates each before joining
+    /// it to <see cref="SpriteDirectory"/>.
     /// </summary>
     public required IReadOnlyDictionary<int, string> CollectionSprites { get; init; }
 

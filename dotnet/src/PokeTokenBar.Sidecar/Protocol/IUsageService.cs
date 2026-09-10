@@ -25,4 +25,18 @@ public partial interface IUsageService
     /// "no usage yet" from "this tool is not installed" without being told any path.
     /// </summary>
     ValueTask<SidecarInfoResponse> GetInfoAsync(CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Spends the hatch price on the egg at <paramref name="offerIndex"/>, revealing its
+    /// species. An index outside the current offer is refused, not clamped: the host derives
+    /// it from a click in a webview, and silently redirecting a bad index to a valid egg would
+    /// spend the budget on something nobody chose.
+    /// </summary>
+    ValueTask<CompanionResponse> ChooseEggAsync(int offerIndex, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Spends one press worth of budget on the active companion. Refused when there is nothing
+    /// to spend on or too little to spend.
+    /// </summary>
+    ValueTask<CompanionResponse> AdvanceCompanionAsync(CancellationToken cancellationToken);
 }
