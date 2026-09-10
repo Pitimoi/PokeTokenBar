@@ -91,6 +91,56 @@ public sealed class SpriteCache
         }
     }
 
+    /// <summary>
+    /// Returns the cached filename for a held berry, downloading it first if absent. Same
+    /// degrade-rather-than-fail contract as <see cref="GetAsync"/> — a feed prompt without
+    /// artwork just falls back to the plain feed emoji.
+    /// </summary>
+    public async ValueTask<SpriteResult> GetBerryAsync(BerryRequest request, CancellationToken cancellationToken = default)
+    {
+        var fileName = BerrySource.FileNameFor(request);
+        if (fileName is null)
+        {
+            return new SpriteResult { Failure = "berry index out of range" };
+        }
+
+        var path = Path.Combine(_directory, fileName);
+        if (File.Exists(path))
+        {
+            return new SpriteResult { FileName = fileName, FromCache = true };
+        }
+
+        var url = BerrySource.UrlFor(request);
+        if (url is null)
+        {
+            return new SpriteResult { Failure = "no url for request" };
+        }
+
+        try
+        {
+            var bytes = await DownloadAsync(url, cancellationToken).ConfigureAwait(false);
+            if (bytes is null)
+            {
+                return new SpriteResult { Failure = "rejected response" };
+            }
+
+            await WriteAtomicallyAsync(path, bytes, cancellationToken).ConfigureAwait(false);
+            return new SpriteResult { FileName = fileName };
+        }
+        catch (HttpRequestException)
+        {
+            return new SpriteResult { Failure = "network unavailable" };
+        }
+        catch (TaskCanceledException)
+        {
+            return new SpriteResult { Failure = "timed out" };
+        }
+        catch (IOException)
+        {
+            return new SpriteResult { Failure = "cache not writable" };
+        }
+    }
+
     private async ValueTask<byte[]?> DownloadAsync(Uri url, CancellationToken cancellationToken)
     {
         // Belt and braces: the URL is built entirely from an integer, but asserting the scheme

@@ -57,6 +57,12 @@ internal sealed record UsageSnapshot
     public required IReadOnlyList<SpeciesInfo> Pokedex { get; init; }
 
     public required DateTimeOffset ScannedAt { get; init; }
+
+    /// <summary>
+    /// A randomly chosen held-berry sprite, present only while <see cref="CanAdvance"/> — the
+    /// status line shows it in place of the generic feed emoji when it can.
+    /// </summary>
+    public string? FeedBerryPath { get; init; }
 }
 
 /// <summary>
@@ -206,11 +212,14 @@ internal sealed class CompanionService
         }
 
         var egg = await EggSprite.EnsureAsync(cancellationToken).ConfigureAwait(false);
+        var canAdvance = state.HasCompanion && state.Available >= CompanionEconomy.ClickCost;
+        var feedBerry = canAdvance ? await FeedBerryPathAsync(cancellationToken).ConfigureAwait(false) : null;
 
         var day = LocalDay.Today();
         return new UsageSnapshot
         {
             EggSpritePath = egg,
+            FeedBerryPath = feedBerry,
             Today = _today ?? UsageTotals.Empty(day, day),
             Week = _week ?? UsageTotals.Empty(day, day),
             Month = _month ?? UsageTotals.Empty(day, day),
@@ -246,6 +255,15 @@ internal sealed class CompanionService
             .GetAsync(new SpriteRequest { SpeciesId = speciesId }, cancellationToken)
             .ConfigureAwait(false);
         return sprite.FileName is null ? null : Path.Combine(_sprites.Directory, sprite.FileName);
+    }
+
+    /// <summary>A fresh random pick each time it's asked, so the feed prompt varies over time.</summary>
+    private async ValueTask<string?> FeedBerryPathAsync(CancellationToken cancellationToken)
+    {
+        var berry = await _sprites
+            .GetBerryAsync(new BerryRequest { Index = Random.Shared.Next(BerrySource.Count) }, cancellationToken)
+            .ConfigureAwait(false);
+        return berry.FileName is null ? null : Path.Combine(_sprites.Directory, berry.FileName);
     }
 
     /// <summary>The library hands back the API slug (pichu); a name is shown, so it is capitalised.</summary>
