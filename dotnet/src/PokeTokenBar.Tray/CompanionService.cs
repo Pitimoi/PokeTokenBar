@@ -32,6 +32,9 @@ internal sealed record UsageSnapshot
 
     public required int OfferCount { get; init; }
 
+    /// <summary>The egg artwork on disk, or null when it could not be fetched.</summary>
+    public string? EggSpritePath { get; init; }
+
     public bool CanHatch => Current is null && OfferCount > 0 && Available >= CompanionEconomy.HatchPrice;
 
     public bool CanAdvance => Current is not null && Available >= CompanionEconomy.ClickCost;
@@ -202,9 +205,12 @@ internal sealed class CompanionService
             pokedex.Add(new SpeciesInfo(id, NameOf(id), sprite, IconPath: null, Color: null));
         }
 
+        var egg = await EggSprite.EnsureAsync(cancellationToken).ConfigureAwait(false);
+
         var day = LocalDay.Today();
         return new UsageSnapshot
         {
+            EggSpritePath = egg,
             Today = _today ?? UsageTotals.Empty(day, day),
             Week = _week ?? UsageTotals.Empty(day, day),
             Month = _month ?? UsageTotals.Empty(day, day),

@@ -145,10 +145,22 @@ internal sealed class App : Application
                 CultureInfo.InvariantCulture,
                 $"{snapshot.OfferCount} eggs waiting · budget {TokenFormat.Compact(snapshot.Available)} · today {TokenFormat.Compact(snapshot.Today.Total)}");
 
-            if (_iconPath is not null)
+            // Eggs on offer: the egg sprite when it is on disk, the pokéball otherwise.
+            var eggIcon = snapshot.EggSpritePath ?? string.Empty;
+            if (!string.Equals(eggIcon, _iconPath, StringComparison.Ordinal))
             {
-                _tray.Icon = TrayIconRenderer.Placeholder();
-                _iconPath = null;
+                try
+                {
+                    _tray.Icon = snapshot.EggSpritePath is null
+                        ? TrayIconRenderer.Placeholder()
+                        : TrayIconRenderer.FromSprite(snapshot.EggSpritePath);
+                }
+                catch (Exception ex) when (ex is ArgumentException or IOException)
+                {
+                    _tray.Icon = TrayIconRenderer.Placeholder();
+                }
+
+                _iconPath = eggIcon;
             }
         }
     }

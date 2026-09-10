@@ -50,6 +50,7 @@ internal sealed class CompanionWindow : Window
 
     private readonly Button[] _eggs = new Button[CompanionEconomy.OfferSize];
     private readonly TextBlock _offerHint = Label(12, opacity: 0.7);
+    private string? _eggSpritePath;
     private readonly StackPanel _offerPanel = new() { Spacing = 2 };
 
     private readonly TextBlock _today = Value();
@@ -165,6 +166,12 @@ internal sealed class CompanionWindow : Window
         }
         else
         {
+            if (snapshot.EggSpritePath is not null && !string.Equals(snapshot.EggSpritePath, _eggSpritePath, StringComparison.Ordinal))
+            {
+                ShowEggs(snapshot.EggSpritePath);
+                _eggSpritePath = snapshot.EggSpritePath;
+            }
+
             for (var i = 0; i < _eggs.Length; i++)
             {
                 _eggs[i].IsVisible = i < snapshot.OfferCount;
@@ -313,6 +320,27 @@ internal sealed class CompanionWindow : Window
         }
     }
 
+    /// <summary>Puts the games' egg sprite on the offer buttons, cropped and doubled like the companion.</summary>
+    private void ShowEggs(string path)
+    {
+        try
+        {
+            var egg = TrayIconRenderer.CropSquare(path);
+            var size = egg.PixelSize.Width * 2;
+            foreach (var button in _eggs)
+            {
+                var image = new Image { Width = size, Height = size, Stretch = Stretch.Uniform, Source = egg };
+                RenderOptions.SetBitmapInterpolationMode(image, BitmapInterpolationMode.None);
+                button.Content = image;
+                button.Padding = new Thickness(6);
+            }
+        }
+        catch (Exception ex) when (ex is ArgumentException or IOException)
+        {
+            // The plain ellipses stay.
+        }
+    }
+
     /// <summary>
     /// The sprite cropped to the creature and blown up by a whole number of pixels, so it fills
     /// the box without the canvas padding or uneven scaling.
@@ -388,6 +416,9 @@ internal sealed class CompanionWindow : Window
             _eggs[i] = new Button
             {
                 Padding = new Thickness(14, 10),
+                // Invisible at rest; the theme's hover style still paints the face on mouse-over.
+                Background = Brushes.Transparent,
+                BorderBrush = Brushes.Transparent,
                 Content = new Ellipse
                 {
                     Width = 30,
