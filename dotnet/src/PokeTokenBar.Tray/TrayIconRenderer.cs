@@ -22,6 +22,17 @@ internal static class TrayIconRenderer
         return new WindowIcon(icon);
     }
 
+    /// <summary>
+    /// The sprite cropped to its opaque bounds and padded square, at native resolution — for
+    /// showing the creature rather than the canvas it floats in.
+    /// </summary>
+    public static WriteableBitmap CropSquare(string path)
+    {
+        using var stream = File.OpenRead(path);
+        using var source = WriteableBitmap.Decode(stream);
+        return CropAndScale(source, targetSize: 0);
+    }
+
     /// <summary>Writes the cropped, square icon as a PNG for tools that render images themselves.</summary>
     public static void SaveIcon(string spritePath, string destination)
     {
@@ -50,11 +61,12 @@ internal static class TrayIconRenderer
     }
 
     /// <summary>
-    /// Crops to the opaque bounding box, pads it square, and resamples to the icon size with
-    /// nearest-neighbour so pixel art stays crisp. Done by hand because Skia's resize only
-    /// accepts decoded bitmaps, not writeable ones.
+    /// Crops to the opaque bounding box, pads it square, and resamples to
+    /// <paramref name="targetSize"/> (zero keeps the native size) with nearest-neighbour so pixel
+    /// art stays crisp. Done by hand because Skia's resize only accepts decoded bitmaps, not
+    /// writeable ones.
     /// </summary>
-    private static unsafe WriteableBitmap CropAndScale(WriteableBitmap source)
+    private static unsafe WriteableBitmap CropAndScale(WriteableBitmap source, int targetSize = IconSize)
     {
         using var input = source.Lock();
         var width = input.Size.Width;
@@ -94,15 +106,16 @@ internal static class TrayIconRenderer
         var side = Math.Max(cropWidth, cropHeight);
         var padX = (side - cropWidth) / 2;
         var padY = (side - cropHeight) / 2;
+        var size = targetSize > 0 ? targetSize : side;
 
-        var result = new WriteableBitmap(new PixelSize(IconSize, IconSize), source.Dpi, source.Format, source.AlphaFormat);
+        var result = new WriteableBitmap(new PixelSize(size, size), source.Dpi, source.Format, source.AlphaFormat);
         using var output = result.Lock();
         var destination = (byte*)output.Address;
-        new Span<byte>(destination, output.RowBytes * IconSize).Clear();
+        new Span<byte>(destination, output.RowBytes * size).Clear();
 
-        for (var dy = 0; dy < IconSize; dy++)
+        for (var dy = 0; dy < size; dy++)
         {
-            var sy = dy * side / IconSize - padY;
+            var sy = dy * side / size - padY;
             if (sy < 0 || sy >= cropHeight)
             {
                 continue;
@@ -111,9 +124,9 @@ internal static class TrayIconRenderer
             var sourceRow = pixels + (top + sy) * stride;
             var targetRow = destination + dy * output.RowBytes;
 
-            for (var dx = 0; dx < IconSize; dx++)
+            for (var dx = 0; dx < size; dx++)
             {
-                var sx = dx * side / IconSize - padX;
+                var sx = dx * side / size - padX;
                 if (sx < 0 || sx >= cropWidth)
                 {
                     continue;

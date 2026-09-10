@@ -50,6 +50,9 @@ internal sealed record UsageSnapshot
     /// <summary>Final form of the most recently completed line, if any.</summary>
     public SpeciesInfo? LastGraduated { get; init; }
 
+    /// <summary>Every species ever owned, in dex order; artwork only for the first few dozen.</summary>
+    public required IReadOnlyList<SpeciesInfo> Pokedex { get; init; }
+
     public required DateTimeOffset ScannedAt { get; init; }
 }
 
@@ -60,6 +63,9 @@ internal sealed record UsageSnapshot
 /// </summary>
 internal sealed class CompanionService
 {
+    /// <summary>How many collected species to fetch artwork for, in dex order — each miss is a request.</summary>
+    private const int CollectionSpriteLimit = 60;
+
     private readonly CompanionStore _companions = new();
     private readonly SpriteCache _sprites = new();
     private readonly SpeciesLibrary _library = new();
@@ -174,6 +180,10 @@ internal sealed class CompanionService
             mentioned.Add(graduated[^1]);
         }
 
+        var owned = (state.Pokedex ?? []).Order().ToArray();
+        mentioned.AddRange(owned);
+
+        // Names arrive a few per refresh, so a long collection fills in over several scans.
         await _library.EnsureNamesAsync(mentioned, cancellationToken: cancellationToken).ConfigureAwait(false);
 
         var current = state.HasCompanion
@@ -182,6 +192,15 @@ internal sealed class CompanionService
         var last = graduated.Count == 0
             ? null
             : await DescribeAsync(graduated[^1], cancellationToken).ConfigureAwait(false);
+
+        var pokedex = new List<SpeciesInfo>(owned.Length);
+        foreach (var id in owned)
+        {
+            var sprite = pokedex.Count < CollectionSpriteLimit
+                ? await SpritePathAsync(id, cancellationToken).ConfigureAwait(false)
+                : null;
+            pokedex.Add(new SpeciesInfo(id, NameOf(id), sprite, IconPath: null, Color: null));
+        }
 
         var day = LocalDay.Today();
         return new UsageSnapshot
@@ -201,6 +220,7 @@ internal sealed class CompanionService
             GraduatedSpeciesId = spend.GraduatedSpeciesId,
             GraduatedCount = graduated.Count,
             LastGraduated = last,
+            Pokedex = pokedex,
             ScannedAt = DateTimeOffset.Now,
         };
     }
@@ -214,16 +234,22 @@ internal sealed class CompanionService
         _ => refusal.ToString(),
     };
 
-    private async ValueTask<SpeciesInfo> DescribeAsync(int speciesId, CancellationToken cancellationToken)
+    private async ValueTask<string?> SpritePathAsync(int speciesId, CancellationToken cancellationToken)
     {
         var sprite = await _sprites
             .GetAsync(new SpriteRequest { SpeciesId = speciesId }, cancellationToken)
             .ConfigureAwait(false);
-        var path = sprite.FileName is null ? null : Path.Combine(_sprites.Directory, sprite.FileName);
-        // The library hands back the API slug (pichu); a name is shown, so capitalise it.
-        var name = _library.NameFor(speciesId) is { Length: > 0 } slug
-            ? char.ToUpperInvariant(slug[0]) + slug[1..]
-            : null;
+        return sprite.FileName is null ? null : Path.Combine(_sprites.Directory, sprite.FileName);
+    }
+
+    /// <summary>The library hands back the API slug (pichu); a name is shown, so it is capitalised.</summary>
+    private string? NameOf(int speciesId) =>
+        _library.NameFor(speciesId) is { Length: > 0 } slug ? char.ToUpperInvariant(slug[0]) + slug[1..] : null;
+
+    private async ValueTask<SpeciesInfo> DescribeAsync(int speciesId, CancellationToken cancellationToken)
+    {
+        var path = await SpritePathAsync(speciesId, cancellationToken).ConfigureAwait(false);
+        var name = NameOf(speciesId);
 
         string? color = null;
         string? icon = null;

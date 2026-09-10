@@ -19,6 +19,9 @@ internal sealed record StatusDocument
 
     public required int GraduatedCount { get; init; }
 
+    /// <summary>Every species ever owned, in dex order.</summary>
+    public required IReadOnlyList<StatusSpecies> Pokedex { get; init; }
+
     public required long TodayTokens { get; init; }
 
     public required double TodayCost { get; init; }
@@ -133,6 +136,9 @@ internal static class StatusExport
                 ? new StatusSpecies { SpeciesId = last.SpeciesId, Name = last.Name, Color = last.Color, Sprite = last.SpritePath, Icon = last.IconPath }
                 : null,
             GraduatedCount = snapshot.GraduatedCount,
+            Pokedex = snapshot.Pokedex
+                .Select(static s => new StatusSpecies { SpeciesId = s.SpeciesId, Name = s.Name, Sprite = s.SpritePath })
+                .ToArray(),
             TodayTokens = snapshot.Today.Total,
             TodayCost = snapshot.Today.Cost,
         };

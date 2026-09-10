@@ -34,7 +34,6 @@ internal sealed class App : Application
         _window.RefreshRequested += (_, _) => Run(_service.ScanAsync);
         _window.AdvanceRequested += (_, _) => Run(_service.AdvanceAsync);
         _window.HatchRequested += index => Run(token => _service.ChooseEggAsync(index, token));
-        _window.QuitRequested += (_, _) => Quit();
 
         var open = new NativeMenuItem("Open");
         open.Click += (_, _) => _window.Toggle();
