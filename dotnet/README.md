@@ -317,7 +317,7 @@ nothing at all when there is nothing to show:
 
 | Script | Output | Example |
 |---|---|---|
-| `progress.sh` | Companion being raised: icon, number, 10-cell progress bar, percent — or, while eggs are on offer, the eggs and the budget against the hatch price | `● #172 ░░░░░░░░░░ 9%` / `🥚 ×3 · 1.2M / 5.0M` |
+| `progress.sh` | Companion being raised: icon, number, 10-cell progress bar, percent (a 🍓 instead once enough is banked to feed) — or, while eggs are on offer, the eggs and the budget against the hatch price | `● #172 ░░░░░░░░░░ 9%` / `● #172 ██░░░░░░░░ 🍓` / `🥚 ×3 · 1.2M / 5.0M` |
 | `previous.sh` | Last companion whose line completed: icon, number, name (silent until then) | `● #26 Raichu` |
 
 Requirements: `bash` and `jq`. Call either or both from your own `~/.claude/statusline.sh` and
