@@ -1,8 +1,7 @@
 # PokeTokenBar — C# port (usage core + VS Code sidecar)
 
 A cross-platform (Windows / macOS / Linux) reimplementation of the usage-reading core, hosted by a
-deliberately thin VS Code extension. The Swift app in `../Sources/` remains the reference
-implementation to port against.
+deliberately thin VS Code extension. The Swift app it was ported from lives [upstream](https://github.com/chattymin/PokeTokenBar).
 
 ## Layout
 
@@ -35,8 +34,8 @@ user opens.
    arbitrary model output. It emits escaped, length-capped display strings so the host cannot be
    tricked into rendering raw content. The webview still needs strict CSP + per-load nonce regardless.
 5. **Reads are streamed and capped.** Never load a whole log file into memory. The Swift original does
-   this correctly for Codex only (`../Sources/PokeTokenBar/Core/LocalUsageReader.swift:673`) and
-   unboundedly elsewhere; that gap is a persistent-DoS bug we are not porting.
+   this correctly for one provider only and unboundedly elsewhere; that gap is a
+   persistent-DoS bug we are not porting.
 
 ## Dependency policy
 

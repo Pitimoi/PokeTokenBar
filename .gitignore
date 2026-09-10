@@ -1,11 +1,3 @@
-# Swift Package Manager
-.build/
-.swiftpm/
-Package.resolved
-
-# App bundle build output
-build/
-
 # OMC / agent local state
 .omc/
 
@@ -24,7 +16,6 @@ extension/server/
 
 # macOS
 .DS_Store
-*.xcuserstate
 
 # Signing material — never commit private keys / certs
 *.p12
@@ -32,12 +23,6 @@ extension/server/
 *.key
 *.cer
 *.certSigningRequest
-
-# Personal dev notes (kept locally, not published).
-# docs/reference/ is the exception: published agent/contributor reference docs.
-# (Must ignore docs/* rather than docs/ — git cannot re-include inside an excluded directory.)
-docs/*
-!docs/reference/
 
 # Agent worktrees / local state
 .claude/

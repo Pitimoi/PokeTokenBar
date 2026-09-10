@@ -6,7 +6,7 @@ A cross-platform (Windows / macOS / Linux) reimplementation of
 [chattymin/PokeTokenBar](https://github.com/chattymin/PokeTokenBar), which is a macOS menu bar
 app written in Swift. This branch is the port: a **C# core and sidecar** in `dotnet/` doing the
 reading and arithmetic, behind a thin **TypeScript extension** in `extension/` that renders it.
-The original Swift sources remain in `Sources/` as the reference implementation.
+The original Swift sources are not in this fork; they remain [upstream](https://github.com/chattymin/PokeTokenBar).
 
 ## Prerequisites
 
@@ -170,7 +170,6 @@ VSIX builds.
 | `dotnet/src/PokeTokenBar.Core` | Parsing, aggregation, pricing, companion. No UI, no host. |
 | `dotnet/src/PokeTokenBar.Sidecar` | stdio JSON-RPC host. Owns credentials and all network access. |
 | `extension/` | VS Code extension. Renders; holds no credentials. |
-| `Sources/` | The original Swift macOS app, kept as the reference implementation. |
 
 Architecture, the security invariants both sides uphold, and the dependency policy are in
 [`dotnet/README.md`](dotnet/README.md). Extension-specific notes are in

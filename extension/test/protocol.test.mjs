@@ -4,7 +4,7 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { after, describe, test } from 'node:test';
 import { Sidecar } from '../out/sidecar.js';
-import { GetInfo, GetUsage } from '../out/protocol.js';
+import { ChooseEgg, GetInfo, GetUsage } from '../out/protocol.js';
 
 const executable = join(
   'server',
@@ -146,6 +146,67 @@ describe('sidecar protocol', { skip: staged ? false : 'run "npm run copy-sidecar
     } finally {
       sidecar.dispose();
     }
+  });
+
+  // Only refusals are exercised against the live binary. It reads and writes the real save for
+  // this machine, so an accepted spend would take tokens out of the user's own game; the
+  // accepting paths are covered in dotnet/tests against a temporary file.
+  test('an offer index outside the offer is refused, and nothing is spent', async () => {
+    const sidecar = await Sidecar.start(process.cwd(), () => {});
+    try {
+      const before = (await sidecar.connection.sendRequest(GetUsage)).companion;
+
+      for (const index of [-1, 99, 2_147_483_647, -2_147_483_648]) {
+        const after = await sidecar.connection.sendRequest(ChooseEgg, index);
+
+        // Which refusal depends on the save this machine happens to hold: a save with a
+        // companion active rejects any index before it looks at the index at all. Whichever
+        // it is, the index must not select an egg and must not spend.
+        assert.match(
+          after.refusal,
+          /^(NoSuchEgg|AlreadyHasCompanion|NotEnoughBudget)$/,
+          `index ${index} must be refused`,
+        );
+        if (!before.hasCompanion && before.canHatch) {
+          assert.equal(after.refusal, 'NoSuchEgg', `index ${index} is not an egg on offer`);
+        }
+
+        assert.equal(after.budget, before.budget, `index ${index} must not spend`);
+        assert.equal(after.hasCompanion, before.hasCompanion);
+        assert.deepEqual(after.pokedex, before.pokedex);
+      }
+    } finally {
+      sidecar.dispose();
+    }
+  });
+
+  test('a refusal names a reason and never a path', async () => {
+    const sidecar = await Sidecar.start(process.cwd(), () => {});
+    try {
+      const response = await sidecar.connection.sendRequest(ChooseEgg, 99);
+
+      assert.match(response.refusal, /^[A-Za-z]+$/, 'the reason is a closed enum name');
+      const paths =
+        JSON.stringify(response).match(/[A-Za-z]:\\\\[^"\s,}]{6,}/g)?.filter(
+          (found) => !found.includes('sprites'),
+        ) ?? [];
+      assert.deepEqual(paths, [], `a refusal disclosed paths: ${JSON.stringify(paths)}`);
+    } finally {
+      sidecar.dispose();
+    }
+  });
+
+  test('a spend method given the wrong parameter shape is rejected, not obeyed', async () => {
+    const session = rawSession();
+    after(() => session.kill());
+    await settle(250);
+    session.send('{"jsonrpc":"2.0","id":8,"method":"ChooseEggAsync","params":["../../etc/passwd"]}');
+    session.send('{"jsonrpc":"2.0","id":9,"method":"ChooseEggAsync","params":[{"index":0}]}');
+    session.send('{"jsonrpc":"2.0","id":10,"method":"AdvanceCompanionAsync","params":[1,2,3]}');
+    await settle(1_500);
+
+    assert.match(session.state.responses.join(''), /-32602/);
+    assert.equal(session.state.exited, false);
   });
 
   test('sanitised model names carry no markup', async () => {

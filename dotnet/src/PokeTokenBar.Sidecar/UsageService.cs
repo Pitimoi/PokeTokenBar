@@ -15,6 +15,8 @@ internal sealed class UsageService : IUsageService
     private readonly SpriteCache _sprites = new();
     private readonly SpeciesLibrary _library = new();
 
+    /// <summary>How many collected species to fetch artwork for, newest first.</summary>
+    private const int CollectionSpriteLimit = 60;
 
     public async ValueTask<UsageResponse> GetUsageAsync(CancellationToken cancellationToken)
     {
@@ -56,7 +58,7 @@ internal sealed class UsageService : IUsageService
 
         var today = LocalDay.For(now);
         var todayTotals = UsageAggregator.ForDay(deduped, today);
-        var companion = await AdvanceCompanionAsync(todayTotals, cancellationToken).ConfigureAwait(false);
+        var companion = await EarnAsync(todayTotals, cancellationToken).ConfigureAwait(false);
         stopwatch.Stop();
 
         return new UsageResponse
@@ -89,58 +91,159 @@ internal sealed class UsageService : IUsageService
         });
     }
 
-    private async ValueTask<CompanionResponse> AdvanceCompanionAsync(
-        UsageTotals today,
+    public async ValueTask<CompanionResponse> ChooseEggAsync(
+        int offerIndex,
         CancellationToken cancellationToken)
     {
-        // One gate around load, advance and save. Every window runs its own sidecar against
-        // this same file; without it, two refreshes that interleave both read the same day
-        // watermark and both apply the same token delta.
         using var gate = FileGate.Acquire(_companions.FilePath);
 
         var loaded = _companions.Load();
+        var spend = CompanionKeeper.ChooseEgg(loaded, offerIndex);
 
-        // A brand new companion is hatched from the built-in lines so that it always exists;
-        // replacing it with a real draw happens here, where awaiting is possible.
-        if (_companions.HatchedFresh)
+        if (!spend.Accepted)
         {
-            loaded = loaded.WithLine(await _library.DrawAsync(loaded.Seed, cancellationToken).ConfigureAwait(false));
+            return await RenderAsync(spend, cancellationToken).ConfigureAwait(false);
         }
 
-        // A path that failed to fetch earlier gets another attempt, so a transient network
-        // failure does not leave a multi-form species stuck showing one form forever.
-        else if (!loaded.PathResolved && loaded.SpeciesPath.Count > 0)
-        {
-            var resolved = await _library
-                .ResolveAsync(loaded.SpeciesPath[0], loaded.Rarity, loaded.Seed, cancellationToken)
-                .ConfigureAwait(false);
-            if (resolved is not null)
-            {
-                loaded = loaded.WithResolvedPath(resolved);
-            }
-        }
-
-        var update = CompanionKeeper.Apply(loaded, today);
-
-        // Same again for the replacement after a graduation: Apply stays synchronous and
-        // testable, and the network-backed draw is layered on top of its result.
-        if (update.GraduatedSpeciesId is not null)
-        {
-            var drawn = await _library.DrawAsync(update.State.Seed, cancellationToken).ConfigureAwait(false);
-            update = update with { State = update.State.WithLine(drawn) };
-        }
-
-        _companions.Save(update.State);
-
-        var companion = update.State.ToCompanion();
-
-        // Animated where the source has it, static otherwise. A missing sprite is not an error:
-        // the companion still has a species, a stage, and progress to show.
-        var sprite = await _sprites
-            .GetAsync(new SpriteRequest { SpeciesId = companion.CurrentSpeciesId, Animated = true }, cancellationToken)
+        // The egg hatches on purchase, so the species is drawn here rather than incubated. The
+        // draw needs the network, which is why the keeper hands back a seed instead of a line.
+        var line = await _library
+            .DrawAsync(spend.ChosenSeed!.Value, cancellationToken)
             .ConfigureAwait(false);
 
-        if (sprite.FileName is null)
+        var hatched = spend.State.WithLine(line);
+        _companions.Save(hatched);
+
+        return await RenderAsync(
+            spend with { State = hatched },
+            cancellationToken,
+            justHatched: hatched.ToCompanion().CurrentSpeciesId).ConfigureAwait(false);
+    }
+
+    public async ValueTask<CompanionResponse> AdvanceCompanionAsync(CancellationToken cancellationToken)
+    {
+        using var gate = FileGate.Acquire(_companions.FilePath);
+
+        var loaded = await ResolveTruncatedPathAsync(_companions.Load(), cancellationToken)
+            .ConfigureAwait(false);
+
+        var spend = CompanionKeeper.Advance(loaded);
+        if (spend.Accepted)
+        {
+            _companions.Save(spend.State);
+        }
+
+        return await RenderAsync(spend, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Credits today's usage to the budget and reports the companion untouched. Nothing
+    /// progresses here: growth is bought, and a refresh is not a purchase.
+    /// </summary>
+    private async ValueTask<CompanionResponse> EarnAsync(
+        UsageTotals today,
+        CancellationToken cancellationToken)
+    {
+        // One gate around load, credit and save. Every window runs its own sidecar against this
+        // same file; without it, two refreshes that interleave both read the same day watermark
+        // and both credit the same token delta.
+        using var gate = FileGate.Acquire(_companions.FilePath);
+
+        var loaded = await ResolveTruncatedPathAsync(_companions.Load(), cancellationToken)
+            .ConfigureAwait(false);
+        loaded = await BackfillPokedexAsync(loaded, cancellationToken).ConfigureAwait(false);
+
+        var credited = CompanionKeeper.CreditBudget(loaded, today);
+        _companions.Save(credited);
+
+        return await RenderAsync(
+            new SpendResult { State = credited, Refusal = SpendRefusal.None },
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Most completed lines to reconstruct. A save holding more than this predates the Pokédex
+    /// by months of heavy use; the pass is capped so it terminates rather than retrying forever.
+    /// </summary>
+    private const int MaxBackfilledLineages = 12;
+
+    /// <summary>
+    /// Fills in the forms raised on the way to each completed line, for saves written before
+    /// the Pokédex existed.
+    /// </summary>
+    /// <remarks>
+    /// A completed line is recorded by its final form alone, so a Pokédex reconstructed from it
+    /// shows Venusaur with no Bulbasaur or Ivysaur before it — species that demonstrably were
+    /// raised. Runs once: it is flagged done only when every line resolved, so a transient
+    /// network failure is retried on the next refresh while a permanent one stops being asked.
+    /// Lookups are cached on disk, so a repeat pass after a partial failure costs nothing for
+    /// the lines that already succeeded.
+    /// </remarks>
+    private async ValueTask<CompanionState> BackfillPokedexAsync(
+        CompanionState state,
+        CancellationToken cancellationToken)
+    {
+        if (state.PokedexBackfilled || state.Graduated.Count == 0)
+        {
+            return state;
+        }
+
+        var next = state;
+        var unresolved = false;
+
+        foreach (var species in state.Graduated.Take(MaxBackfilledLineages))
+        {
+            var lineage = await _library.LineageOfAsync(species, cancellationToken).ConfigureAwait(false);
+            if (lineage.Count == 0)
+            {
+                unresolved = true;
+                continue;
+            }
+
+            next = next.WithPokedexEntries(lineage);
+        }
+
+        return unresolved ? next : next with { PokedexBackfilled = true };
+    }
+
+    /// <summary>
+    /// Re-attempts a path that failed to fetch earlier, so a transient network failure does not
+    /// leave a multi-form species stuck showing one form forever.
+    /// </summary>
+    private async ValueTask<CompanionState> ResolveTruncatedPathAsync(
+        CompanionState state,
+        CancellationToken cancellationToken)
+    {
+        if (state.PathResolved || !state.HasCompanion)
+        {
+            return state;
+        }
+
+        var resolved = await _library
+            .ResolveAsync(state.SpeciesPath[0], state.Rarity, state.Seed, cancellationToken)
+            .ConfigureAwait(false);
+
+        return resolved is null ? state : state.WithResolvedPath(resolved);
+    }
+
+    private async ValueTask<CompanionResponse> RenderAsync(
+        SpendResult spend,
+        CancellationToken cancellationToken,
+        int? justHatched = null)
+    {
+        var state = spend.State;
+        var companion = state.ToCompanion();
+        var pokedex = state.Pokedex ?? [];
+
+        // A missing sprite is not an error: the companion still has a species, a stage, and
+        // progress to show. Animated where the source has it, static otherwise.
+        var sprite = state.HasCompanion
+            ? await _sprites
+                .GetAsync(new SpriteRequest { SpeciesId = companion.CurrentSpeciesId, Animated = true }, cancellationToken)
+                .ConfigureAwait(false)
+            : new SpriteResult();
+
+        if (state.HasCompanion && sprite.FileName is null)
         {
             sprite = await _sprites
                 .GetAsync(new SpriteRequest { SpeciesId = companion.CurrentSpeciesId }, cancellationToken)
@@ -148,9 +251,20 @@ internal sealed class UsageService : IUsageService
         }
 
         // Names for every species the host might render: the current form, the line it is on,
-        // and the collection. Gathered once here so the host never has to ask again.
-        var mentioned = new HashSet<int>(companion.SpeciesPath) { companion.CurrentSpeciesId };
-        mentioned.UnionWith(update.State.Graduated);
+        // and the Pokédex. Gathered once here so the host never has to ask again.
+        var mentioned = new HashSet<int>(pokedex);
+        mentioned.UnionWith(state.Graduated);
+        if (state.HasCompanion)
+        {
+            mentioned.UnionWith(companion.SpeciesPath);
+            mentioned.Add(companion.CurrentSpeciesId);
+        }
+
+        // A collected mid-line form was never walked as part of a chain, so its name is
+        // unknown. Filled a few at a time so a long Pokédex converges over several refreshes
+        // rather than stalling one.
+        await _library.EnsureNamesAsync(mentioned, cancellationToken: cancellationToken).ConfigureAwait(false);
+
         var names = new Dictionary<int, string>();
         foreach (var id in mentioned)
         {
@@ -161,22 +275,53 @@ internal sealed class UsageService : IUsageService
             }
         }
 
+        // Static sprites for the Pokédex: a quarter the size of the animated ones, and a grid
+        // of animations would be noise rather than charm. Bounded because the Pokédex grows
+        // without limit and each miss is a request. Taken in the order the host renders them,
+        // so the cap only ever costs artwork at the end of the list rather than in the middle.
+        var collectionSprites = new Dictionary<int, string>();
+        foreach (var id in pokedex.Order().Take(CollectionSpriteLimit))
+        {
+            var art = await _sprites
+                .GetAsync(new SpriteRequest { SpeciesId = id }, cancellationToken)
+                .ConfigureAwait(false);
+
+            if (art.FileName is not null)
+            {
+                collectionSprites[id] = art.FileName;
+            }
+        }
+
         return new CompanionResponse
         {
-            SpeciesId = companion.CurrentSpeciesId,
-            SpeciesName = names.GetValueOrDefault(companion.CurrentSpeciesId, string.Empty),
-            StageIndex = companion.SafeStageIndex,
-            TotalForms = companion.TotalForms,
-            StageProgress = companion.StageProgress,
-            TokensAtStage = companion.TokensAtStage,
-            StageThreshold = companion.StageThreshold,
-            Rarity = companion.Rarity.ToString(),
-            ReachedForms = companion.ReachedForms,
-            JustEvolved = update.Evolutions,
-            JustGraduated = update.GraduatedSpeciesId,
-            GraduatedCount = update.State.Graduated.Count,
-            Graduated = update.State.Graduated,
+            Budget = state.Available,
+            Earned = state.Earned,
+            Spent = state.Spent,
+            HatchPrice = CompanionEconomy.HatchPrice,
+            ClickCost = CompanionEconomy.ClickCost,
+            OfferCount = state.OfferSeeds?.Count ?? 0,
+            HasCompanion = state.HasCompanion,
+            CanHatch = !state.HasCompanion && state.Available >= CompanionEconomy.HatchPrice,
+            CanAdvance = state.HasCompanion && state.Available >= CompanionEconomy.ClickCost,
+            Refusal = spend.Refusal == SpendRefusal.None ? string.Empty : spend.Refusal.ToString(),
+            SpeciesId = state.HasCompanion ? companion.CurrentSpeciesId : 0,
+            SpeciesName = state.HasCompanion
+                ? names.GetValueOrDefault(companion.CurrentSpeciesId, string.Empty)
+                : string.Empty,
+            StageIndex = state.HasCompanion ? companion.SafeStageIndex : 0,
+            TotalForms = state.HasCompanion ? companion.TotalForms : 0,
+            StageProgress = state.HasCompanion ? companion.StageProgress : 0,
+            TokensAtStage = state.HasCompanion ? companion.TokensAtStage : 0,
+            StageThreshold = state.HasCompanion ? companion.StageThreshold : 0,
+            Rarity = state.HasCompanion ? companion.Rarity.ToString() : string.Empty,
+            ReachedForms = state.HasCompanion ? companion.ReachedForms : [],
+            JustEvolved = spend.Evolutions,
+            JustGraduated = spend.GraduatedSpeciesId,
+            JustHatched = justHatched,
+            Pokedex = pokedex,
+            Graduated = state.Graduated,
             Names = names,
+            CollectionSprites = collectionSprites,
             SpriteFileName = sprite.FileName,
             SpriteDirectory = _sprites.Directory,
         };

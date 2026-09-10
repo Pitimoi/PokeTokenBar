@@ -317,12 +317,107 @@ public sealed class SpeciesLibraryTests
         Assert.False(library.HasCachedIndex);
     }
 
+    [Fact]
+    public async Task ReconstructsTheFormsRaisedToReachAFinalForm()
+    {
+        // A completed line is recorded by its last form alone, so a Pokédex rebuilt from it
+        // would show Venusaur with nothing before it. The built-in table answers this offline.
+        using var directory = new TempPokedexDirectory();
+        var library = new SpeciesLibrary(new PokeApiClient(new HttpClient(new OfflineHandler())), directory.Path);
+
+        Assert.Equal([1, 2, 3], await library.LineageOfAsync(3));
+        Assert.Equal([1, 2], await library.LineageOfAsync(2));
+        Assert.Equal([1], await library.LineageOfAsync(1));
+    }
+
+    [Fact]
+    public async Task ASpeciesWithNoEarlierFormIsItsOwnWholeLineage()
+    {
+        // A real answer, not a failure: Mewtwo has nothing before it.
+        using var directory = new TempPokedexDirectory();
+        var library = new SpeciesLibrary(new PokeApiClient(new HttpClient(new OfflineHandler())), directory.Path);
+
+        Assert.Equal([150], await library.LineageOfAsync(150));
+    }
+
+    [Fact]
+    public async Task AnUnresolvableLineageIsEmptyRatherThanTheSpeciesAlone()
+    {
+        // The caller retries an empty answer and accepts a single-element one, so returning
+        // [id] on failure would make a failed lookup indistinguishable from a single-form line
+        // and stop the retry that would have fixed it.
+        using var directory = new TempPokedexDirectory();
+        var library = new SpeciesLibrary(new PokeApiClient(new HttpClient(new OfflineHandler())), directory.Path);
+
+        Assert.Empty(await library.LineageOfAsync(700));
+    }
+
+    [Fact]
+    public async Task RejectsAnImplausibleSpeciesIdWithoutAskingAnyone()
+    {
+        using var directory = new TempPokedexDirectory();
+        var library = new SpeciesLibrary(new PokeApiClient(new HttpClient(new ThrowIfCalledHandler())), directory.Path);
+
+        Assert.Empty(await library.LineageOfAsync(0));
+        Assert.Empty(await library.LineageOfAsync(-5));
+    }
+
+    [Fact]
+    public async Task CachesAResolvedLineageSoTheSecondLookupIsOffline()
+    {
+        using var directory = new TempPokedexDirectory();
+        var chain = """
+            {"chain":{"species":{"name":"gastly","url":"https://pokeapi.co/api/v2/pokemon-species/92/"},
+            "evolves_to":[{"species":{"name":"haunter","url":"https://pokeapi.co/api/v2/pokemon-species/93/"},
+            "evolves_to":[{"species":{"name":"gengar","url":"https://pokeapi.co/api/v2/pokemon-species/94/"},
+            "evolves_to":[]}]}]}}
+            """;
+        var online = new SpeciesLibrary(
+            new PokeApiClient(new HttpClient(new SpeciesThenChainHandler(chain))),
+            directory.Path);
+
+        Assert.Equal([92, 93, 94], await online.LineageOfAsync(94));
+
+        var offline = new SpeciesLibrary(
+            new PokeApiClient(new HttpClient(new OfflineHandler())),
+            directory.Path);
+        Assert.Equal([92, 93, 94], await offline.LineageOfAsync(94));
+    }
+
     private sealed class OfflineHandler : HttpMessageHandler
     {
         protected override Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request,
             CancellationToken cancellationToken) =>
             throw new HttpRequestException("offline");
+    }
+
+    private sealed class ThrowIfCalledHandler : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken) =>
+            throw new InvalidOperationException($"no request should have been made, got {request.RequestUri}");
+    }
+
+    /// <summary>Answers the species lookup with a chain id, then the chain itself.</summary>
+    private sealed class SpeciesThenChainHandler(string chain) : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            var path = request.RequestUri?.AbsolutePath ?? string.Empty;
+            var body = path.Contains("evolution-chain", StringComparison.Ordinal)
+                ? chain
+                : """{"evolution_chain":{"url":"https://pokeapi.co/api/v2/evolution-chain/33/"}}""";
+
+            // A fresh response per call: the product disposes each one it reads.
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(body, Encoding.UTF8, "application/json"),
+            });
+        }
     }
 
     private sealed class SingleResponseHandler(string body) : HttpMessageHandler

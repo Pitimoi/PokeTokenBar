@@ -1,4 +1,4 @@
-<!-- Write the PR title and this description in English (see CONTRIBUTING.md). -->
+<!-- Write the PR title and this description in English (see CLAUDE.md). -->
 
 ## Summary
 
@@ -15,11 +15,9 @@
 ## UI changes
 
 <!--
-When this PR changes anything under `Sources/PokeTokenBar/UI/`, describe the
-before/after below. Images (screenshots or GIFs) are welcome but optional — a
-clear text description is fine. The canonical app screenshots in `assets/` are
-regenerated at release, so they don't need updating per PR. Remove this section
-only if there are no UI changes.
+When this PR changes the status bar item or the companion webview, describe the before/after.
+Images are welcome but optional — a clear text description is fine. Remove this section if
+there are no UI changes.
 -->
 
 | Before | After |
@@ -28,8 +26,9 @@ only if there are no UI changes.
 
 ## Checklist
 
-- [ ] `swift build` and `swift test` pass locally
+- [ ] `npm run test:all` passes from `extension/` (dotnet tests plus extension tests)
 - [ ] PR title and description are written in English
-- [ ] UI changes are described above (before/after — images optional)
-- [ ] No copyrighted assets, secrets, or private tooling references are committed (see [CONTRIBUTING](../CONTRIBUTING.md))
-- [ ] Tests were added or updated for this change
+- [ ] New guards were verified by breaking them on purpose, not only by passing
+- [ ] No protocol parameter names a path, URL, endpoint or executable
+- [ ] No credential is logged, sent over the protocol, or stored outside the sidecar
+- [ ] Anything newly rendered in the webview is escaped at the point of use

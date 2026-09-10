@@ -32,24 +32,40 @@ const { GetUsage } = await import('../out/protocol.js');
 const { CompanionViewProvider } = await import('../out/companionView.js');
 
 /**
- * The whole path in one assertion: the real sidecar scans real transcripts, advances the
- * companion, caches a sprite, and the real view renders it. Everything in between is genuine;
- * only the editor is stubbed.
+ * The whole path in one assertion: the real sidecar scans real transcripts, banks a budget,
+ * caches a sprite, and the real view renders it. Everything in between is genuine; only the
+ * editor is stubbed.
  */
 describe('end to end', { skip: staged ? false : 'run "npm run copy-sidecar" first' }, () => {
-  test('real usage produces a companion that renders safely', async () => {
+  test('real usage produces a game state that renders safely', async () => {
     const sidecar = await Sidecar.start(process.cwd(), () => {});
     try {
       const usage = await sidecar.connection.sendRequest(GetUsage);
       const companion = usage.companion;
 
-      assert.ok(companion.speciesId > 0, 'a companion must exist');
-      assert.ok(companion.totalForms >= 1);
-      assert.ok(companion.stageIndex < companion.totalForms, 'stage must be inside the line');
-      assert.ok(companion.stageProgress >= 0 && companion.stageProgress <= 1);
-      assert.ok(companion.stageThreshold > 0);
-      assert.match(companion.rarity, /^(Common|Uncommon|Rare|Legendary)$/);
+      // Whichever state the save is in, there is always something to do: a companion to feed
+      // or eggs to choose from. Neither is a dead end.
+      assert.ok(Number.isInteger(companion.offerCount), 'offerCount must be present');
+      assert.ok(
+        companion.hasCompanion || companion.offerCount > 0,
+        'a save with neither a companion nor an offer would be unplayable',
+      );
+      assert.ok(companion.budget >= 0);
+      assert.ok(companion.hatchPrice > 0 && companion.clickCost > 0);
+      assert.equal(companion.refusal, '', 'a plain refresh asks for no spend');
       assert.ok(companion.spriteDirectory.length > 0);
+
+      if (companion.hasCompanion) {
+        assert.ok(companion.speciesId > 0, 'an active companion must have a species');
+        assert.ok(companion.totalForms >= 1);
+        assert.ok(companion.stageIndex < companion.totalForms, 'stage must be inside the line');
+        assert.ok(companion.stageProgress >= 0 && companion.stageProgress <= 1);
+        assert.ok(companion.stageThreshold > 0);
+        assert.match(companion.rarity, /^(Common|Uncommon|Rare|Legendary)$/);
+      } else {
+        assert.equal(companion.speciesId, 0, 'an unchosen egg must not reveal its species');
+        assert.equal(companion.spriteFileName, null, 'nor its artwork');
+      }
 
       const webview = {
         cspSource: 'vscode-resource://test',
@@ -75,6 +91,10 @@ describe('end to end', { skip: staged ? false : 'run "npm run copy-sidecar" firs
       if (companion.spriteFileName) {
         assert.match(webview.html, /<img src="https:\/\/cdn\//);
       }
+
+      // Command links are what make the view clickable with scripts off, so the allowlist has
+      // to reach the real webview options — not only the unit-tested render.
+      assert.ok(Array.isArray(webview.options.enableCommandUris));
     } finally {
       sidecar.dispose();
     }

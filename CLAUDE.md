@@ -1,81 +1,89 @@
-# PokeTokenBar — Claude 프로젝트 지침
+# PokeTokenBar (VS Code port) — project instructions
 
-이 파일은 **매 세션 전문이 로드된다.** 그래서 여기엔 *항상 적용되는 규칙*만 둔다.
-길고 상황별인 절차는 `docs/reference/` 로 내리고 아래 인덱스에서 "언제 읽는가"로 가리킨다.
-새 규칙을 더할 때도 같은 기준으로 배치한다 — 항상 적용이면 여기, 특정 작업 때만이면 참조 문서.
+This file is loaded in full every session, so it holds only rules that **always apply**.
+Architecture, security invariants and the dependency policy live in
+[`dotnet/README.md`](dotnet/README.md); how to run and package it is in
+[`README.md`](README.md).
 
-## 참조 문서 (필요할 때 읽는다)
+The Swift sources this was ported from are no longer in this repository. They remain upstream at
+[chattymin/PokeTokenBar](https://github.com/chattymin/PokeTokenBar) if a behaviour needs checking
+against the original.
 
-| 문서 | 언제 읽나 |
+## Layout
+
+| Path | Rule |
 |---|---|
-| `docs/reference/release-workflow.md` | 버전을 배포할 때, `release.sh` 게이트에 막혔을 때, UI 변경으로 스크린샷·랜딩을 갱신할 때 |
-| `docs/reference/provider-extension.md` | 새 사용량 소스·버전매니저·로그 루트를 추가할 때, 프로바이더 분기를 리뷰할 때 |
-| `docs/reference/defect-log.md` | 결함·회귀를 고치는 중(부류 스윕 근거), 동시성·캐시·외부 로그 포맷·대용량 파일 읽기·상시 애니메이션·세이브 이전을 건드릴 때 |
+| `dotnet/src/PokeTokenBar.Core` | Parsing, aggregation, pricing, companion. **No UI, no host, no VS Code.** Kept host-agnostic so a tray app could reuse it. |
+| `dotnet/src/PokeTokenBar.Sidecar` | stdio JSON-RPC host. Owns credentials and **all** network access. |
+| `extension/` | Renders. Holds no credentials and makes no network calls. |
 
-각 문서의 frontmatter(`summary`/`read_when`)가 그 문서의 적용 범위를 다시 명시한다.
+## The trust boundary is the thing to protect
 
-## 기여 언어 규약 (오픈소스 대비 — English first)
+A folder the user opens can contribute configuration, and this process reads other tools' logs
+and credentials. Two rules follow, and neither is negotiable:
 
-외부 컨트리뷰션을 받을 수 있도록 이 저장소는 **영어를 first language** 로 한다.
+- **The host never tells the sidecar what to do.** No protocol parameter may name a path, a URL,
+  an endpoint or an executable. The sidecar resolves all of those itself.
+- **Credentials live only in the sidecar.** Never in `SecretStorage`, never over the wire, never
+  in a log.
 
-- **PR 제목·본문은 영어만.** 한국어로 지시받아도(예: "PR 올려줘") PR 산출물은 영어로 작성한다.
-  기존 git log(한국어)를 모방하려는 커밋 컨벤션 자동 감지보다 **이 규칙이 우선**한다.
-- 스쿼시 머지 저장소라 **PR 제목이 곧 `main` 커밋 제목**이 된다 → PR 을 영어로 쓰면 공개 히스토리도
-  영어로 유지된다.
-- **커밋 메시지도 영어 기본.** 스쿼시 전 브랜치 커밋 목록도 PR 리뷰어에게 노출되므로 영어로 쓴다.
-- 범위 밖(추후): 코드 주석·이 `CLAUDE.md` 본문의 영어 전환. README/랜딩은 이미 en/ko/ja 다국어 유지.
+Anything rendered in the webview is untrusted input, whatever its source, and is escaped at the
+point of use even when the sidecar already sanitised it.
 
-## 릴리스 (자연어 트리거)
+## Language
 
-사용자가 **버전 배포를 자연어로 요청**하면 — 예: "배포해줘", "릴리스 올려줘", "패치 배포",
-"2.1.1 배포", "release", "다음 버전 내줘" — 한 줄 명령을 시키지 말고 직접 수행한다.
+English only, in code, comments, commit messages and PRs — including when the instruction to
+commit or open a PR arrives in another language. This is a squash-merge repository, so a PR
+title becomes a commit on the default branch.
 
-**버전 결정** (2026-07-03 확정 규칙): 사용자가 말한 **단어가 곧 세그먼트 지정 명령**이다 —
-릴리스에 기능이 포함돼 있어도 변경 내용으로 재해석하지 않는다.
+## Commits carry the context
 
-- "**패치**(해줘)" → x.y.**Z+1** / "**마이너**" → x.**Y+1**.0 / "**메이저**" → **X+1**.0.0
-- 버전을 직접 명시하면("2.4.1 배포") 그 값 그대로.
-- 세그먼트 지정 없이 "배포/릴리스"만 말하면: 변경 성격 기준으로 제안 후 확인받고 진행.
+Rationale, measurements and what a faithful port would have got wrong belong in the **commit
+message**. Comments are for what a reader needs at the point of use: API contracts, non-obvious
+constraints, decisions that look wrong until explained. Porting archaeology and change
+commentary do not belong in the code.
 
-**문서·스크린샷·랜딩 갱신은 매 릴리스 필수다 — "할까요?" 묻지 말고 무조건 한다.**
-실행 절차·에셋 게이트·함정은 `docs/reference/release-workflow.md`, 체크리스트는 `RELEASE.md`.
+## When a defect appears
 
-릴리스는 외부 공개(비가역)이므로 실행 직전 **적용할 버전과 노트 요약을 한 번 보여준 뒤** 진행한다.
+Whatever surfaced it — a report, a review, a test, your own reading — do all four, in order.
+The goal is never meeting the same *class* of mistake twice.
 
-## 확장 규약 (새 프로바이더/툴 추가 시)
+1. **Root cause, including the review gap.** Symptom, then direct cause, then *why the existing
+   tests did not catch it*. Usually a test passed through a different path than the defect
+   triggers, which is worse than no test because it grants false confidence.
+2. **Sweep the class.** Grep the whole codebase for the same misuse or pattern. Never fix one
+   instance and stop.
+3. **Regression test the triggering branch.** Reproduce the exact condition, not a neighbouring
+   one. For an `A || B` gate, exercise **B alone**. Then break the fix on purpose and confirm the
+   test fails — a test never seen red proves nothing, and coverage percentages are not evidence.
+   **Before adding a guard, check the trigger is reachable**: trace who can supply that input.
+   An unreachable guard is over-specification, and withdrawing a review comment costs nothing.
+4. **Capture it mechanically.** A test, a build gate, a script — something a machine enforces.
+   Documentation is the weakest form and should be the last resort.
 
-특정 플랫폼에 종속된 분기를 만들지 않는다. 손댈 지점은 정해져 있다 — 사용량 소스는
-`UsageProvider` 구현체 + `UsageStore.init` 의 `providers:` 배열, 버전매니저는
-`BinaryLocator.commonToolDirectories()`, 로그 루트는 프로바이더별 루트 목록(예:
-`LocalUsageReader.claudeProjectRoots`). 범용 경로(오늘/주/월 합계·burn·companion)에
-`== "claude_code"` 류 리터럴 분기를 넣는 건 금지.
+### Classes already paid for
 
-전체 규약과 리뷰 기준은 `docs/reference/provider-extension.md`.
+Inherited from the original plus found during the port. Check this list before sweeping.
 
-## 결함 대응 프로토콜 (잘못·회귀·공백·결함이 드러날 때마다 매번)
+- **32-bit accumulators.** Swift's `Int` is 64-bit; C#'s `int` is not. Real corpora exceed
+  `int.MaxValue`, and one balance constant does not fit in an `int` at all.
+- **Unbounded reads of external files.** Stream and cap both file size *and* line length; a
+  file-size cap alone still admits one pathological line.
+- **Implausible numbers from external logs.** Discard rather than clamp — a clamped value goes
+  on to dominate every aggregate it reaches.
+- **Duplicate records.** Streaming re-emits the same turn; deduplicate, keeping the largest.
+- **Absolute readings treated as deltas.** Use a watermark, and reset it on a day boundary.
+- **Shared state across processes.** Every window runs its own sidecar; guard read-modify-write.
+- **AOT-hostile serialisation.** Only the `JsonTypeInfo` overloads survive publishing; options
+  carrying a generated resolver do not. Property initialisers do not survive deserialisation, so
+  a new field's *default value* must be correct for existing saves.
+- **Verifying absence instead of presence.** A packaged artifact needs checking for what must be
+  in it, not only for what must not.
+- **Silently truncated external data.** An out-of-range element should end a sequence, not
+  discard it; a failed fetch should be marked for retry, not persisted as fact.
 
-사용자 리포트·리뷰·QA·자체발견 무엇이든 결함/회귀/공백이 나오면, **고치고 끝내지 말고** 아래를
-순서대로 수행한다. (한 번 겪은 부류의 실수를 다시 겪지 않게 하는 것이 목적.)
+## Never launch VS Code from a shell
 
-1. **근본원인 (5-whys — 테스트·리뷰 공백까지).** 증상 → 직접원인 → **"테스트/리뷰가 있었는데 왜
-   못 걸렀나"** 를 반드시 답한다. 대개 테스트가 결함 트리거와 *다른 경로*로 통과해 false confidence 를 준다.
-2. **부류 스윕.** 같은 부류(같은 API 오용·같은 패턴)를 코드베이스 전수 grep·검증. 하나만 고치고 끝내지 않는다.
-   축적된 부류 목록이 `docs/reference/defect-log.md` 다 — 스윕 전에 그 문서를 먼저 훑는다.
-3. **회귀 테스트 — 트리거 브랜치를 검증.** 결함을 유발하는 *바로 그 조건/브랜치*를 재현한다.
-   **가드를 추가하거나 리뷰에서 요구하기 전에, 그 시나리오가 이 코드베이스에서 도달 가능한지 먼저
-   확인한다.** 트리거 입력이 존재할 수 없으면 가드도 테스트도 만들지 않는다 — 주입 검증은 "가드가
-   작동하는가"에만 답하지 "이 상황이 일어나는가"에는 답하지 않는다. 확인은 입력 경로 역추적이다:
-   그 값을 누가 넣을 수 있나(사용자 설정·환경변수·외부 입력), 호출부가 이미 정규화·검증하고 있지 않나.
-   (#181 리뷰에서 Codex 루트 중복을 막는 `normalizedRoots` 에 테스트를 요구했다가 철회했다 —
-   `UsageEnvironment.names` 에 `CODEX_HOME` 이 없어 루트는 하드코딩 형제 둘뿐이라 중복이 발생할 수
-   없고, 프로덕션 호출부는 이미 `computeCodexScanRoots` 에서 정규화를 거친다. 도달 불가한 가드를
-   요구하는 것은 정확도가 아니라 over-spec 이고, 리뷰 지적 철회는 비용이 아니다.)
-   `A || B` 게이트면 **B 단독**(A=false, B=true)도 검증. (활성 블록이 있는 케이스로만 테스트해서
-   주/월-only 경로를 못 밟은 게 #56 회귀의 원인.) 새 가드는 **결함을 일부러 주입해 실패하는지**
-   한 번 확인한다 — 통과만 보면 아무것도 안 지키는 테스트를 구별할 수 없다. **커버리지 게이트 숫자는
-   증거가 아니다** — `test-gate.sh` 는 line coverage 라 한 줄 `if x { y }` 는 조건만 평가되면 실행으로
-   세고, 블록이 한 번도 안 돌아도 통과한다(도감 이로치 집계가 `^0` 인 채 87% 를 통과해 무테스트로 나갈
-   뻔했다). 새 조건 분기를 넣었으면 `xcrun llvm-cov show <bin> -instr-profile=<profdata> <file>
-   --show-regions` 로 `^0` 을 직접 본다.
-4. **영구 캡처 (기억이 아니라 메커니즘).** 재발 방지는 테스트·게이트·`docs/reference/defect-log.md`·
-   스크립트 중 *기계로 막을 수 있는* 형태로 남긴다. 릴리스 관련이면 `release.sh` 게이트, 절차면 문서.
+On Windows every window is a child of one `Code.exe`, so a tool-invoked `code ...` can close the
+user's entire session. Keep security-relevant logic in modules that do not import `vscode` so it
+can be driven from plain node; use `@vscode/test-electron` if a real editor is genuinely needed.

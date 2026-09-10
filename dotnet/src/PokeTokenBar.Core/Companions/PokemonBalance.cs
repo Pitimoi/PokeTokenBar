@@ -12,12 +12,6 @@ namespace PokeTokenBar.Core.Companions;
 public static class PokemonBalance
 {
     /// <summary>
-    /// Tokens that must be spent before an egg hatches. Deliberately not instant — the wait is
-    /// the point — and the surplus carries into the hatchling's growth.
-    /// </summary>
-    public const long EggHatchThreshold = 5_000_000;
-
-    /// <summary>
     /// Total tokens to take a line from its first form to graduation. Equal for every line of a
     /// given rarity, independent of how many forms it has.
     /// </summary>
