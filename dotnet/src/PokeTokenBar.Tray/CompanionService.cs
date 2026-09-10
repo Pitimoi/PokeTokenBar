@@ -65,6 +65,12 @@ internal sealed record UsageSnapshot
     /// status line shows it in place of the generic feed emoji when it can.
     /// </summary>
     public string? FeedBerryPath { get; init; }
+
+    /// <summary>
+    /// The one Pokédex entry still genuinely in progress, or null. Drives the Pokédex grid's
+    /// dimming; see <see cref="CompanionState.PendingSpeciesId"/> for what decides it.
+    /// </summary>
+    public int? PendingSpeciesId { get; init; }
 }
 
 /// <summary>
@@ -237,6 +243,7 @@ internal sealed class CompanionService
             GraduatedSpeciesId = spend.GraduatedSpeciesId,
             GraduatedCount = graduated.Count,
             Previous = previous,
+            PendingSpeciesId = state.PendingSpeciesId,
             Pokedex = pokedex,
             ScannedAt = DateTimeOffset.Now,
         };
