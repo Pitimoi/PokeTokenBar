@@ -2,6 +2,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
+using PokeTokenBar.Core.Sprites;
 
 namespace PokeTokenBar.Tray;
 
@@ -74,39 +75,9 @@ internal static class TrayIconRenderer
         var stride = input.RowBytes;
         var pixels = (byte*)input.Address;
 
-        int left = width, top = height, right = -1, bottom = -1;
-        for (var y = 0; y < height; y++)
-        {
-            var row = pixels + y * stride;
-            for (var x = 0; x < width; x++)
-            {
-                // Alpha is the fourth byte in both Bgra8888 and Rgba8888.
-                if (row[x * 4 + 3] == 0)
-                {
-                    continue;
-                }
-
-                left = Math.Min(left, x);
-                right = Math.Max(right, x);
-                top = Math.Min(top, y);
-                bottom = Math.Max(bottom, y);
-            }
-        }
-
-        if (right < left)
-        {
-            left = 0;
-            top = 0;
-            right = width - 1;
-            bottom = height - 1;
-        }
-
-        var cropWidth = right - left + 1;
-        var cropHeight = bottom - top + 1;
-        var side = Math.Max(cropWidth, cropHeight);
-        var padX = (side - cropWidth) / 2;
-        var padY = (side - cropHeight) / 2;
-        var size = targetSize > 0 ? targetSize : side;
+        // Alpha is the fourth byte in both Bgra8888 and Rgba8888.
+        var square = SpriteCrop.Compute(width, height, (x, y) => pixels[y * stride + x * 4 + 3]);
+        var size = targetSize > 0 ? targetSize : square.Side;
 
         var result = new WriteableBitmap(new PixelSize(size, size), source.Dpi, source.Format, source.AlphaFormat);
         using var output = result.Lock();
@@ -115,24 +86,24 @@ internal static class TrayIconRenderer
 
         for (var dy = 0; dy < size; dy++)
         {
-            var sy = dy * side / size - padY;
-            if (sy < 0 || sy >= cropHeight)
+            var sy = (dy * square.Side / size) - square.PadY;
+            if (sy < 0 || sy >= square.Height)
             {
                 continue;
             }
 
-            var sourceRow = pixels + (top + sy) * stride;
+            var sourceRow = pixels + (square.Top + sy) * stride;
             var targetRow = destination + dy * output.RowBytes;
 
             for (var dx = 0; dx < size; dx++)
             {
-                var sx = dx * side / size - padX;
-                if (sx < 0 || sx >= cropWidth)
+                var sx = (dx * square.Side / size) - square.PadX;
+                if (sx < 0 || sx >= square.Width)
                 {
                     continue;
                 }
 
-                *(uint*)(targetRow + dx * 4) = *(uint*)(sourceRow + (left + sx) * 4);
+                *(uint*)(targetRow + dx * 4) = *(uint*)(sourceRow + (square.Left + sx) * 4);
             }
         }
 
