@@ -118,6 +118,50 @@ public sealed class SpeciesLibrary
     public bool HasCachedIndex => SysIO.File.Exists(IndexPath);
 
     /// <summary>
+    /// Fetches names for species not yet known, at most <paramref name="budget"/> per call.
+    /// </summary>
+    /// <remarks>
+    /// Bounded on purpose. A collection built up over weeks could hold dozens of species whose
+    /// names were never learned, and fetching them all would turn one refresh into a minute of
+    /// requests. Filling a few per refresh converges within a handful of scans and is cached
+    /// permanently after that.
+    /// </remarks>
+    public async ValueTask EnsureNamesAsync(
+        IEnumerable<int> speciesIds,
+        int budget = 8,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(speciesIds);
+
+        var names = LoadNames();
+        var learned = new List<KeyValuePair<int, string>>();
+
+        foreach (var id in speciesIds.Distinct())
+        {
+            if (learned.Count >= budget)
+            {
+                break;
+            }
+
+            if (id < 1 || names.ContainsKey(id.ToString(CultureInfo.InvariantCulture)))
+            {
+                continue;
+            }
+
+            var name = await _api.GetSpeciesNameAsync(id, cancellationToken).ConfigureAwait(false);
+            if (name is not null)
+            {
+                learned.Add(new KeyValuePair<int, string>(id, name));
+            }
+        }
+
+        if (learned.Count > 0)
+        {
+            RememberNames(learned);
+        }
+    }
+
+    /// <summary>
     /// Display name for a species, or null when it has never been seen. Names accumulate as
     /// species are encountered, so a mid-chain form or a graduated one can be named without a
     /// lookup of its own.

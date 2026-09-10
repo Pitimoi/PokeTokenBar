@@ -43,6 +43,13 @@ public sealed record CompanionResponse
     public required IReadOnlyDictionary<int, string> Names { get; init; }
 
     /// <summary>
+    /// Cache-relative sprite filenames for the collection, keyed by dex id. Filenames only,
+    /// for the same reason as <see cref="SpriteFileName"/>: the host validates each before
+    /// joining it to <see cref="SpriteDirectory"/>.
+    /// </summary>
+    public required IReadOnlyDictionary<int, string> CollectionSprites { get; init; }
+
+    /// <summary>
     /// Cache-relative sprite filename, or null when it could not be fetched. Never a URL and
     /// never a path: the host joins it to <see cref="SpriteDirectory"/> after validating it.
     /// </summary>

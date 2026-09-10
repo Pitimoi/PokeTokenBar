@@ -15,6 +15,9 @@ internal sealed class UsageService : IUsageService
     private readonly SpriteCache _sprites = new();
     private readonly SpeciesLibrary _library = new();
 
+    /// <summary>How many collected species to fetch artwork for, newest first.</summary>
+    private const int CollectionSpriteLimit = 60;
+
 
     public async ValueTask<UsageResponse> GetUsageAsync(CancellationToken cancellationToken)
     {
@@ -151,6 +154,12 @@ internal sealed class UsageService : IUsageService
         // and the collection. Gathered once here so the host never has to ask again.
         var mentioned = new HashSet<int>(companion.SpeciesPath) { companion.CurrentSpeciesId };
         mentioned.UnionWith(update.State.Graduated);
+
+        // A collected mid-line form was never walked as part of a chain, so its name is
+        // unknown. Filled a few at a time so a long collection converges over several
+        // refreshes rather than stalling one.
+        await _library.EnsureNamesAsync(mentioned, cancellationToken: cancellationToken).ConfigureAwait(false);
+
         var names = new Dictionary<int, string>();
         foreach (var id in mentioned)
         {
@@ -158,6 +167,22 @@ internal sealed class UsageService : IUsageService
             if (name is not null)
             {
                 names[id] = name;
+            }
+        }
+
+        // Static sprites for the collection: a quarter the size of the animated ones, and a
+        // grid of animations would be noise rather than charm. Bounded because the collection
+        // grows without limit and each miss is a request.
+        var collectionSprites = new Dictionary<int, string>();
+        foreach (var id in update.State.Graduated.Reverse().Take(CollectionSpriteLimit))
+        {
+            var art = await _sprites
+                .GetAsync(new SpriteRequest { SpeciesId = id }, cancellationToken)
+                .ConfigureAwait(false);
+
+            if (art.FileName is not null)
+            {
+                collectionSprites[id] = art.FileName;
             }
         }
 
@@ -177,6 +202,7 @@ internal sealed class UsageService : IUsageService
             GraduatedCount = update.State.Graduated.Count,
             Graduated = update.State.Graduated,
             Names = names,
+            CollectionSprites = collectionSprites,
             SpriteFileName = sprite.FileName,
             SpriteDirectory = _sprites.Directory,
         };

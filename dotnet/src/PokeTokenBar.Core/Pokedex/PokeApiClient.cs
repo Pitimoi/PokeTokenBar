@@ -124,6 +124,31 @@ public sealed class PokeApiClient(HttpClient? client = null)
         return new EvolutionChainResult { Paths = paths, Names = names };
     }
 
+    /// <summary>
+    /// Name of a single species. Used to fill gaps for species never walked as part of a
+    /// chain — a collected mid-line form, for instance.
+    /// </summary>
+    public async ValueTask<string?> GetSpeciesNameAsync(int speciesId, CancellationToken cancellationToken = default)
+    {
+        if (speciesId is < 1 or > MaxSpeciesId)
+        {
+            return null;
+        }
+
+        var url = new Uri($"https://{RestHost}/api/v2/pokemon-species/{speciesId}/");
+        using var request = new HttpRequestMessage(HttpMethod.Get, url);
+
+        var json = await ReadJsonAsync(request, RestHost, cancellationToken).ConfigureAwait(false);
+        if (json is null)
+        {
+            return null;
+        }
+
+        using var document = json;
+        var name = ReadString(document.RootElement, "name");
+        return name.Length > 0 ? name : null;
+    }
+
     /// <summary>Chain id for a species, needed because a species does not name its own chain.</summary>
     public async ValueTask<int?> GetChainIdAsync(int speciesId, CancellationToken cancellationToken = default)
     {

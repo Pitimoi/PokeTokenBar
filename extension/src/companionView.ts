@@ -87,12 +87,46 @@ export class CompanionViewProvider implements vscode.WebviewViewProvider {
         <tr><th>Week</th><td>${escapeHtml(formatTokens(week.total))}</td></tr>
         <tr><th>Month</th><td>${escapeHtml(formatTokens(month.total))}</td></tr>
       </table>
-      ${companion.graduatedCount > 0
-        ? `<div class="meta">${companion.graduatedCount} completed</div>`
-        : ''}
+      ${this.collection(companion, webview)}
     `;
 
     return this.shell(body, webview.cspSource);
+  }
+
+  /**
+   * The collection: every line completed, newest first. Rendered from filenames the sidecar
+   * supplies, each validated before it is joined to a directory.
+   */
+  private collection(companion: UsageResponse['companion'], webview: vscode.Webview): string {
+    const graduated = companion.graduated ?? [];
+    const names = companion.names ?? {};
+    const sprites = companion.collectionSprites ?? {};
+
+    if (graduated.length === 0) {
+      return '<div class="meta empty">Nothing collected yet</div>';
+    }
+
+    const newestFirst = [...graduated].reverse();
+    const cells = newestFirst
+      .map((id) => {
+        const label = speciesLabel(id, names[String(id)]);
+        const file = sprites[String(id)];
+        const art = isSpriteFileName(file) && companion.spriteDirectory
+          ? `<img src="${escapeHtml(
+              webview
+                .asWebviewUri(vscode.Uri.joinPath(vscode.Uri.file(companion.spriteDirectory), file!))
+                .toString(),
+            )}" alt="${escapeHtml(label)}" />`
+          : `<span class="dex">#${id}</span>`;
+
+        return `<li title="${escapeHtml(label)}">${art}<span>${escapeHtml(label)}</span></li>`;
+      })
+      .join('');
+
+    return `
+      <div class="section">Collected ${graduated.length}</div>
+      <ul class="collection">${cells}</ul>
+    `;
   }
 
   /**
@@ -136,6 +170,19 @@ export class CompanionViewProvider implements vscode.WebviewViewProvider {
     .bar { height: 6px; margin: 8px auto 0; width: 85%; border-radius: 3px;
            background: var(--vscode-progressBar-background, rgba(128,128,128,0.25)); }
     .fill { height: 100%; border-radius: 3px; background: var(--vscode-charts-blue); }
+    .section { margin-top: 14px; font-size: 0.8em; text-transform: uppercase;
+               letter-spacing: 0.05em; opacity: 0.6; }
+    .empty { margin-top: 14px; font-style: italic; }
+    .collection { list-style: none; padding: 0; margin: 8px 0 0; display: grid;
+                  grid-template-columns: repeat(auto-fill, minmax(52px, 1fr)); gap: 6px; }
+    .collection li { display: flex; flex-direction: column; align-items: center;
+                     font-size: 0.7em; opacity: 0.85; overflow: hidden; }
+    .collection img { width: 40px; height: 40px; object-fit: contain;
+                      image-rendering: pixelated; }
+    .collection span { max-width: 100%; overflow: hidden; text-overflow: ellipsis;
+                       white-space: nowrap; }
+    .dex { display: flex; align-items: center; justify-content: center;
+           width: 40px; height: 40px; opacity: 0.5; }
     table { margin: 12px auto 0; font-size: 0.85em; border-collapse: collapse; }
     th { text-align: left; font-weight: 400; opacity: 0.75; padding-right: 10px; }
     td { text-align: right; font-variant-numeric: tabular-nums; }

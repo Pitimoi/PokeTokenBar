@@ -53,6 +53,9 @@ function response(overrides = {}) {
       justEvolved: [],
       justGraduated: null,
       graduatedCount: 0,
+      graduated: [],
+      names: { 3: 'venusaur' },
+      collectionSprites: {},
       spriteFileName: '3-a.gif',
       spriteDirectory: SPRITE_DIR,
       ...overrides,
@@ -153,4 +156,76 @@ test('renders a waiting state before the first response', () => {
   assert.equal(view.webview.options.enableScripts, false);
   // Nothing is known yet, so nothing local may be loaded.
   assert.equal(view.webview.options.localResourceRoots.length, 0);
+});
+
+test('shows an empty state before anything is collected', () => {
+  const { html } = render({ graduated: [] });
+  assert.match(html, /Nothing collected yet/);
+  assert.doesNotMatch(html, /class="collection"/);
+});
+
+test('renders the collection newest first with names and sprites', () => {
+  const { html } = render({
+    graduated: [3, 6, 9],
+    names: { 3: 'venusaur', 6: 'charizard', 9: 'blastoise' },
+    collectionSprites: { 3: '3-s.png', 6: '6-s.png', 9: '9-s.png' },
+  });
+
+  assert.match(html, /Collected 3/);
+  const order = ['Blastoise', 'Charizard', 'Venusaur'].map((n) => html.indexOf(n));
+  assert.ok(order[0] < order[1] && order[1] < order[2], 'newest collected must come first');
+  assert.match(html, /9-s\.png/);
+});
+
+test('a collected species with no sprite falls back to its dex number', () => {
+  const { html } = render({
+    graduated: [42],
+    names: { 42: 'golbat' },
+    collectionSprites: {},
+  });
+
+  assert.match(html, /class="dex">#42/);
+  assert.match(html, /Golbat/);
+});
+
+test('a collected species with no known name shows its dex number', () => {
+  const { html } = render({ graduated: [777], names: {}, collectionSprites: {} });
+  assert.match(html, /#777/);
+});
+
+test('a hostile collection sprite filename is refused, not joined', () => {
+  const { html } = render({
+    graduated: [3],
+    names: { 3: 'venusaur' },
+    collectionSprites: { 3: '../../../../Windows/win.ini' },
+  });
+
+  assert.doesNotMatch(html, /win\.ini/);
+  assert.match(html, /class="dex">#3/);
+});
+
+test('a hostile collected name renders as text', () => {
+  const { html } = render({
+    graduated: [3],
+    names: { 3: '<img src=x onerror=alert(1)>' },
+    collectionSprites: {},
+  });
+
+  assert.doesNotMatch(html, /<img src=x/);
+  assert.match(html, /&lt;img src=x/);
+});
+
+test('survives a sidecar that omits the collection fields entirely', () => {
+  // An installed extension can meet an older sidecar; a missing field must not throw.
+  const provider = new CompanionViewProvider();
+  const view = fakeView();
+  provider.resolveWebviewView(view);
+
+  const stale = response();
+  delete stale.companion.graduated;
+  delete stale.companion.names;
+  delete stale.companion.collectionSprites;
+
+  provider.update(stale);
+  assert.match(view.webview.html, /Nothing collected yet/);
 });

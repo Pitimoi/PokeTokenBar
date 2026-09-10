@@ -58,6 +58,8 @@ export interface CompanionInfo {
   readonly graduated: readonly number[];
   /** Names for every species mentioned, keyed by dex id as a string over the wire. */
   readonly names: Readonly<Record<string, string>>;
+  /** Sprite filenames for the collection, keyed by dex id. Validate before joining. */
+  readonly collectionSprites: Readonly<Record<string, string>>;
   /**
    * Cache-relative filename, never a URL and never a path. Validate it with
    * `isSpriteFileName` before joining it to `spriteDirectory` — the sidecar should only ever
