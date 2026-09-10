@@ -29,6 +29,17 @@ public sealed record CompanionState
     public required IReadOnlyList<int> Graduated { get; init; }
 
     /// <summary>
+    /// True while this is still an egg.
+    /// </summary>
+    /// <remarks>
+    /// Phrased as "is an egg" rather than "has hatched" so that its absence means hatched. A
+    /// save written before eggs existed has no such field, and a property initializer does not
+    /// survive source-generated deserialization — the default value itself has to be the
+    /// answer for legacy data, or every established companion regresses into an egg.
+    /// </remarks>
+    public bool IsEgg { get; init; }
+
+    /// <summary>
     /// False when the evolution path could not be fetched and may be truncated. Not required,
     /// so a save written before this existed reads as unresolved and gets one re-attempt rather
     /// than staying wrong forever.
@@ -57,6 +68,7 @@ public sealed record CompanionState
             WatermarkTokens = 0,
             Graduated = [],
             PathResolved = false,
+            IsEgg = true,
         };
     }
 
@@ -77,6 +89,9 @@ public sealed record CompanionState
                 StageIndex = 0,
                 TokensAtStage = 0,
                 PathResolved = line.Resolved,
+                // A newly drawn line arrives as an egg. The species is already decided, and
+                // withheld until it hatches — the waiting is the point.
+                IsEgg = true,
             };
     }
 

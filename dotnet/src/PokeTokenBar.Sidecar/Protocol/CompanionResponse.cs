@@ -3,6 +3,12 @@ namespace PokeTokenBar.Sidecar.Protocol;
 /// <summary>The companion as the host needs to render it.</summary>
 public sealed record CompanionResponse
 {
+    /// <summary>
+    /// True while this is still an egg. The species is decided but deliberately withheld —
+    /// <see cref="SpeciesId"/> is zero and the sprite absent — so the host cannot spoil it.
+    /// </summary>
+    public required bool IsEgg { get; init; }
+
     public required int SpeciesId { get; init; }
 
     /// <summary>
@@ -33,6 +39,9 @@ public sealed record CompanionResponse
 
     /// <summary>Set when a line completed on this refresh.</summary>
     public int? JustGraduated { get; init; }
+
+    /// <summary>Set to the revealed species when an egg hatched on this refresh.</summary>
+    public int? JustHatched { get; init; }
 
     public required int GraduatedCount { get; init; }
 

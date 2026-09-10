@@ -41,6 +41,8 @@ export interface ScanReport {
 }
 
 export interface CompanionInfo {
+  /** True while still an egg; species and sprite are withheld so the host cannot spoil it. */
+  readonly isEgg: boolean;
   readonly speciesId: number;
   /** Sanitised species name, or empty when unknown — fall back to the dex number. */
   readonly speciesName: string;
@@ -54,6 +56,7 @@ export interface CompanionInfo {
   readonly reachedForms: readonly number[];
   readonly justEvolved: readonly number[];
   readonly justGraduated: number | null;
+  readonly justHatched: number | null;
   readonly graduatedCount: number;
   readonly graduated: readonly number[];
   /** Names for every species mentioned, keyed by dex id as a string over the wire. */

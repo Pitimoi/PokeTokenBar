@@ -92,7 +92,7 @@ public sealed class CompanionKeeperTests
     public void ADayRolloverRestartsTheWatermarkWithoutLosingProgress()
     {
         // Today's total resets at midnight, so a stale watermark would compute a negative delta.
-        var state = CompanionState.Hatch(1);
+        var state = CompanionState.Hatch(1) with { IsEgg = false };
         var yesterday = CompanionKeeper.Apply(state, "2026-09-09", 5_000_000);
 
         var today = CompanionKeeper.Apply(yesterday.State, "2026-09-10", 2_000_000);
@@ -117,7 +117,7 @@ public sealed class CompanionKeeperTests
     [Fact]
     public void GraduationRecordsTheLineAndHatchesAReplacement()
     {
-        var state = CompanionState.Hatch(1);
+        var state = CompanionState.Hatch(1) with { IsEgg = false };
         var whole = PokemonBalance.GraduationTotal(state.Rarity);
 
         var update = CompanionKeeper.Apply(state, "2026-09-09", whole);
@@ -132,7 +132,7 @@ public sealed class CompanionKeeperTests
     [Fact]
     public void TheReplacementKeepsTheWatermarkSoProgressIsNotDoubleCounted()
     {
-        var state = CompanionState.Hatch(1);
+        var state = CompanionState.Hatch(1) with { IsEgg = false };
         var whole = PokemonBalance.GraduationTotal(state.Rarity);
 
         var update = CompanionKeeper.Apply(state, "2026-09-09", whole);
@@ -311,5 +311,186 @@ public sealed class CompanionStoreTests
             {
             }
         }
+    }
+}
+
+public sealed class EggPhaseTests
+{
+    private static CompanionState FreshEgg() =>
+        CompanionState.Hatch(1) with { SpeciesPath = [1, 2, 3], Rarity = Rarity.Common };
+
+    [Fact]
+    public void ANewCompanionStartsAsAnEgg()
+    {
+        Assert.True(CompanionState.Hatch(1).IsEgg);
+    }
+
+    [Fact]
+    public void ADrawnLineArrivesAsAnEgg()
+    {
+        var state = CompanionState.Hatch(1) with { IsEgg = false };
+
+        var replaced = state.WithLine(new EvolutionLine { SpeciesPath = [4, 5, 6], Rarity = Rarity.Common });
+
+        Assert.True(replaced.IsEgg);
+    }
+
+    [Fact]
+    public void ASaveWrittenBeforeEggsExistedReadsAsHatched()
+    {
+        // Defaulting to false would regress every established companion into an egg.
+        using var directory = new TempEggDirectory();
+        File.WriteAllText(
+            directory.File,
+            """{"speciesPath":[1,2,3],"stageIndex":1,"tokensAtStage":50,"rarity":"Common","seed":1,"watermarkDay":"","watermarkTokens":0,"graduated":[]}""");
+
+        Assert.False(new CompanionStore(directory.File).Load().IsEgg);
+    }
+
+    [Fact]
+    public void TokensBelowTheThresholdDoNotHatchIt()
+    {
+        var update = CompanionKeeper.Apply(FreshEgg(), "2026-09-10", PokemonBalance.EggHatchThreshold - 1);
+
+        Assert.True(update.State.IsEgg);
+        Assert.Null(update.HatchedSpeciesId);
+        Assert.Empty(update.Evolutions);
+    }
+
+    [Fact]
+    public void AnEggAbsorbsTokensWithoutGrowingAForm()
+    {
+        var update = CompanionKeeper.Apply(FreshEgg(), "2026-09-10", 1_000_000);
+
+        Assert.Equal(1_000_000, update.State.TokensAtStage);
+        Assert.Equal(0, update.State.StageIndex);
+    }
+
+    [Fact]
+    public void ReachingTheThresholdHatchesAndRevealsTheSpecies()
+    {
+        var update = CompanionKeeper.Apply(FreshEgg(), "2026-09-10", PokemonBalance.EggHatchThreshold);
+
+        Assert.False(update.State.IsEgg);
+        Assert.Equal(1, update.HatchedSpeciesId);
+        Assert.Equal(0, update.State.TokensAtStage);
+    }
+
+    [Fact]
+    public void SurplusCarriesIntoTheHatchling()
+    {
+        // Nothing may be lost at the shell.
+        var update = CompanionKeeper.Apply(
+            FreshEgg(),
+            "2026-09-10",
+            PokemonBalance.EggHatchThreshold + 4_321);
+
+        Assert.False(update.State.IsEgg);
+        Assert.Equal(4_321, update.State.TokensAtStage);
+    }
+
+    [Fact]
+    public void OneLargeBatchCanHatchAndEvolveTogether()
+    {
+        // Usage arrives in batches; stalling at the shell for a whole refresh would be wrong.
+        var whole = PokemonBalance.EggHatchThreshold + PokemonBalance.GraduationTotal(Rarity.Common);
+
+        var update = CompanionKeeper.Apply(FreshEgg(), "2026-09-10", whole);
+
+        // It hatched, evolved through the line, graduated, and the replacement is a new egg.
+        Assert.NotNull(update.HatchedSpeciesId);
+        Assert.NotEmpty(update.Evolutions);
+        Assert.NotNull(update.GraduatedSpeciesId);
+        Assert.True(update.State.IsEgg);
+    }
+
+    [Fact]
+    public void AnEggIsNotFedTwiceByTwoRefreshesOfTheSameTotal()
+    {
+        var first = CompanionKeeper.Apply(FreshEgg(), "2026-09-10", 2_000_000);
+        var second = CompanionKeeper.Apply(first.State, "2026-09-10", 2_000_000);
+
+        Assert.Equal(2_000_000, second.State.TokensAtStage);
+        Assert.True(second.State.IsEgg);
+    }
+
+    [Fact]
+    public void GraduationYieldsAnotherEgg()
+    {
+        var hatched = FreshEgg() with { IsEgg = false };
+        var whole = PokemonBalance.GraduationTotal(Rarity.Common);
+
+        var update = CompanionKeeper.Apply(hatched, "2026-09-10", whole);
+
+        Assert.NotNull(update.GraduatedSpeciesId);
+        Assert.True(update.State.IsEgg);
+    }
+
+    private sealed class TempEggDirectory : IDisposable
+    {
+        public TempEggDirectory()
+        {
+            Root = Path.Combine(Path.GetTempPath(), "ptb-egg-" + Guid.NewGuid().ToString("N")[..10]);
+            Directory.CreateDirectory(Root);
+            File = Path.Combine(Root, "companion.json");
+        }
+
+        public string Root { get; }
+
+        public string File { get; }
+
+        public void Dispose()
+        {
+            try
+            {
+                Directory.Delete(Root, recursive: true);
+            }
+            catch (IOException)
+            {
+            }
+        }
+    }
+}
+
+public sealed class EggPersistenceTests
+{
+    [Fact]
+    public void AnEggFlagWrittenAsTrueIsReadBackAsTrue()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "ptb-eggrt-" + Guid.NewGuid().ToString("N")[..8]);
+        Directory.CreateDirectory(root);
+        var file = Path.Combine(root, "companion.json");
+
+        try
+        {
+            File.WriteAllText(
+                file,
+                """{"speciesPath":[133,134],"stageIndex":0,"tokensAtStage":1200000,"rarity":"Uncommon","seed":77,"watermarkDay":"2026-09-10","watermarkTokens":999999999,"graduated":[3],"pathResolved":true,"isEgg":true}""");
+
+            Assert.True(new CompanionStore(file).Load().IsEgg);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void AnEggWithNoNewTokensStaysAnEgg()
+    {
+        var egg = CompanionState.Hatch(5) with
+        {
+            SpeciesPath = [133, 134],
+            Rarity = Rarity.Uncommon,
+            TokensAtStage = 1_200_000,
+            WatermarkDay = "2026-09-10",
+            WatermarkTokens = 999_999_999,
+        };
+
+        // Today's total is below the watermark, so the delta is zero.
+        var update = CompanionKeeper.Apply(egg, "2026-09-10", 174_000_000);
+
+        Assert.True(update.State.IsEgg);
+        Assert.Equal(1_200_000, update.State.TokensAtStage);
     }
 }

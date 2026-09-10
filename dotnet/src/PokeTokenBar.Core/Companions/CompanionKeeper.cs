@@ -12,6 +12,9 @@ public sealed record CompanionUpdate
 
     /// <summary>Set when a line completed and a fresh companion replaced it.</summary>
     public int? GraduatedSpeciesId { get; init; }
+
+    /// <summary>Set to the revealed species when an egg hatched on this update.</summary>
+    public int? HatchedSpeciesId { get; init; }
 }
 
 /// <summary>
@@ -37,6 +40,32 @@ public static class CompanionKeeper
             ? Math.Max(0, observed - current.WatermarkTokens)
             : observed;
 
+        // An egg absorbs tokens without growing a form. Reaching the threshold hatches it and
+        // the surplus carries into the hatchling, so a single large batch can hatch and evolve
+        // in one go rather than stalling at the shell.
+        int? hatched = null;
+        if (current.IsEgg)
+        {
+            var inEgg = current.TokensAtStage + delta;
+            if (inEgg < PokemonBalance.EggHatchThreshold)
+            {
+                return new CompanionUpdate
+                {
+                    State = current with
+                    {
+                        TokensAtStage = inEgg,
+                        WatermarkDay = today,
+                        WatermarkTokens = observed,
+                    },
+                    Evolutions = [],
+                };
+            }
+
+            current = current with { IsEgg = false, TokensAtStage = 0 };
+            delta = inEgg - PokemonBalance.EggHatchThreshold;
+            hatched = current.ToCompanion().CurrentSpeciesId;
+        }
+
         var advance = CompanionProgression.Apply(current.ToCompanion(), delta);
 
         var next = current with
@@ -50,7 +79,12 @@ public static class CompanionKeeper
 
         if (!advance.Graduated)
         {
-            return new CompanionUpdate { State = next, Evolutions = advance.Evolutions };
+            return new CompanionUpdate
+            {
+                State = next,
+                Evolutions = advance.Evolutions,
+                HatchedSpeciesId = hatched,
+            };
         }
 
         // A completed line is recorded and replaced, so there is always a companion to show.
@@ -69,6 +103,7 @@ public static class CompanionKeeper
             State = replacement,
             Evolutions = advance.Evolutions,
             GraduatedSpeciesId = graduatedId,
+            HatchedSpeciesId = hatched,
         };
     }
 

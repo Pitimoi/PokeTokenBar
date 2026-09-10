@@ -64,4 +64,7 @@ public sealed record CompanionAdvance
     public required IReadOnlyList<int> Evolutions { get; init; }
 
     public required bool Graduated { get; init; }
+
+    /// <summary>Set to the revealed species when an egg hatched on this update.</summary>
+    public int? Hatched { get; init; }
 }

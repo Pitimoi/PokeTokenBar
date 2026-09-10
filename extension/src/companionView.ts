@@ -68,18 +68,28 @@ export class CompanionViewProvider implements vscode.WebviewViewProvider {
   private page(response: UsageResponse, webview: vscode.Webview): string {
     const { companion, today, week, month } = response;
 
-    const sprite = this.spriteTag(companion.spriteFileName, companion.spriteDirectory, webview);
     const percent = Math.round(Math.max(0, Math.min(1, companion.stageProgress)) * 100);
-    const stage = `${companion.stageIndex + 1} / ${companion.totalForms}`;
+
+    // An egg deliberately shows no species: the sidecar withholds it, and the wait is the
+    // point. Rendering anything identifying here would undo that.
+    const heading = companion.isEgg
+      ? `
+        <div class="pet"><div class="egg">🥚</div></div>
+        <div class="name">Egg</div>
+        <div class="meta">Something is in there</div>`
+      : `
+        <div class="pet">${this.spriteTag(companion.spriteFileName, companion.spriteDirectory, webview)}</div>
+        <div class="name">${escapeHtml(speciesLabel(companion.speciesId, companion.speciesName))}</div>
+        <div class="meta">#${companion.speciesId}</div>
+        <div class="meta">${escapeHtml(companion.rarity)} · stage
+          ${escapeHtml(`${companion.stageIndex + 1} / ${companion.totalForms}`)}</div>`;
 
     const body = `
-      <div class="pet">${sprite}</div>
-      <div class="name">${escapeHtml(speciesLabel(companion.speciesId, companion.speciesName))}</div>
-      <div class="meta">#${companion.speciesId}</div>
-      <div class="meta">${escapeHtml(companion.rarity)} · stage ${escapeHtml(stage)}</div>
+      ${heading}
       <div class="bar"><div class="fill" style="width:${percent}%"></div></div>
       <div class="meta">${escapeHtml(formatTokens(companion.tokensAtStage))} /
         ${escapeHtml(formatTokens(companion.stageThreshold))} · ${percent}%</div>
+      ${companion.justHatched ? '<div class="event">It hatched!</div>' : ''}
       ${companion.justGraduated ? '<div class="event">A line completed!</div>' : ''}
       ${companion.justEvolved.length > 0 ? '<div class="event">It evolved!</div>' : ''}
       <table>
@@ -164,6 +174,7 @@ export class CompanionViewProvider implements vscode.WebviewViewProvider {
     .pet { min-height: 96px; display: flex; align-items: center; justify-content: center; }
     .pet img { image-rendering: pixelated; transform: scale(2); }
     .placeholder { font-size: 32px; opacity: 0.4; }
+    .egg { font-size: 56px; line-height: 1; }
     .name { font-weight: 600; margin-top: 8px; }
     .meta { font-size: 0.85em; opacity: 0.75; margin-top: 2px; }
     .event { margin-top: 6px; color: var(--vscode-charts-green); font-size: 0.85em; }

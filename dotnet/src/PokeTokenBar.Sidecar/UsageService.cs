@@ -136,14 +136,18 @@ internal sealed class UsageService : IUsageService
         _companions.Save(update.State);
 
         var companion = update.State.ToCompanion();
+        var isEgg = update.State.IsEgg;
 
         // Animated where the source has it, static otherwise. A missing sprite is not an error:
         // the companion still has a species, a stage, and progress to show.
-        var sprite = await _sprites
-            .GetAsync(new SpriteRequest { SpeciesId = companion.CurrentSpeciesId, Animated = true }, cancellationToken)
-            .ConfigureAwait(false);
+        // Nothing is fetched for an egg: the artwork would be the spoiler.
+        var sprite = isEgg
+            ? new SpriteResult()
+            : await _sprites
+                .GetAsync(new SpriteRequest { SpeciesId = companion.CurrentSpeciesId, Animated = true }, cancellationToken)
+                .ConfigureAwait(false);
 
-        if (sprite.FileName is null)
+        if (!isEgg && sprite.FileName is null)
         {
             sprite = await _sprites
                 .GetAsync(new SpriteRequest { SpeciesId = companion.CurrentSpeciesId }, cancellationToken)
@@ -152,8 +156,13 @@ internal sealed class UsageService : IUsageService
 
         // Names for every species the host might render: the current form, the line it is on,
         // and the collection. Gathered once here so the host never has to ask again.
-        var mentioned = new HashSet<int>(companion.SpeciesPath) { companion.CurrentSpeciesId };
-        mentioned.UnionWith(update.State.Graduated);
+        // An egg contributes nothing to the name set, or its species would leak through it.
+        var mentioned = new HashSet<int>(update.State.Graduated);
+        if (!isEgg)
+        {
+            mentioned.UnionWith(companion.SpeciesPath);
+            mentioned.Add(companion.CurrentSpeciesId);
+        }
 
         // A collected mid-line form was never walked as part of a chain, so its name is
         // unknown. Filled a few at a time so a long collection converges over several
@@ -188,17 +197,21 @@ internal sealed class UsageService : IUsageService
 
         return new CompanionResponse
         {
-            SpeciesId = companion.CurrentSpeciesId,
-            SpeciesName = names.GetValueOrDefault(companion.CurrentSpeciesId, string.Empty),
-            StageIndex = companion.SafeStageIndex,
-            TotalForms = companion.TotalForms,
-            StageProgress = companion.StageProgress,
+            IsEgg = isEgg,
+            SpeciesId = isEgg ? 0 : companion.CurrentSpeciesId,
+            SpeciesName = isEgg ? string.Empty : names.GetValueOrDefault(companion.CurrentSpeciesId, string.Empty),
+            StageIndex = isEgg ? 0 : companion.SafeStageIndex,
+            TotalForms = isEgg ? 0 : companion.TotalForms,
+            StageProgress = isEgg
+                ? Math.Clamp(companion.TokensAtStage / (double)PokemonBalance.EggHatchThreshold, 0, 1)
+                : companion.StageProgress,
             TokensAtStage = companion.TokensAtStage,
-            StageThreshold = companion.StageThreshold,
-            Rarity = companion.Rarity.ToString(),
-            ReachedForms = companion.ReachedForms,
+            StageThreshold = isEgg ? PokemonBalance.EggHatchThreshold : companion.StageThreshold,
+            Rarity = isEgg ? string.Empty : companion.Rarity.ToString(),
+            ReachedForms = isEgg ? [] : companion.ReachedForms,
             JustEvolved = update.Evolutions,
             JustGraduated = update.GraduatedSpeciesId,
+            JustHatched = update.HatchedSpeciesId,
             GraduatedCount = update.State.Graduated.Count,
             Graduated = update.State.Graduated,
             Names = names,

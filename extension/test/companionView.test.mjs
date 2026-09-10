@@ -42,6 +42,7 @@ function response(overrides = {}) {
     month: totals,
     scan: { degraded: false },
     companion: {
+      isEgg: false,
       speciesId: 3,
       stageIndex: 2,
       totalForms: 3,
@@ -52,6 +53,7 @@ function response(overrides = {}) {
       reachedForms: [1, 2, 3],
       justEvolved: [],
       justGraduated: null,
+      justHatched: null,
       graduatedCount: 0,
       graduated: [],
       names: { 3: 'venusaur' },
