@@ -10,9 +10,10 @@
 // emits trim warnings, and trimming an assembly that warns can remove code it needs at runtime;
 // a 75 MB helper that works beats a 30 MB one that might not.
 import { execFileSync } from 'node:child_process';
-import { chmodSync, copyFileSync, mkdirSync, readdirSync, rmSync, statSync } from 'node:fs';
+import { chmodSync, copyFileSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { verifyVsix } from './verify-vsix.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const extensionRoot = join(here, '..');
@@ -92,10 +93,33 @@ console.log(`\nStaged ${published.length} file(s), sidecar ${megabytes} MB\n`);
 runLocal(join('typescript', 'bin', 'tsc'), ['-p', './']);
 runLocal(join('@vscode', 'vsce', 'vsce'), ['package', '--target', vsceTarget]);
 
-const vsix = readdirSync(extensionRoot).filter((f) => f.endsWith('.vsix')).sort();
-console.log('\nBuilt:');
-for (const file of vsix) {
-  console.log(`  ${file}  (${(statSync(join(extensionRoot, file)).size / 1024 / 1024).toFixed(1)} MB)`);
+const built = readdirSync(extensionRoot)
+  .filter((f) => f.endsWith('.vsix') && f.includes(vsceTarget))
+  .map((f) => ({ f, mtime: statSync(join(extensionRoot, f)).mtimeMs }))
+  .sort((a, b) => b.mtime - a.mtime)[0]?.f;
+
+if (!built) {
+  console.error('vsce produced no .vsix for this target.');
+  process.exit(1);
 }
+
+// Never hand over an archive that has not been opened and checked. The first VSIX built here
+// looked fine and failed at activation, because its one runtime dependency was excluded and
+// nothing verified that dependencies were present.
+const manifest = JSON.parse(readFileSync(join(extensionRoot, 'package.json'), 'utf8'));
+const { entries, problems } = verifyVsix(join(extensionRoot, built), manifest, exeName);
+const sizeMb = (statSync(join(extensionRoot, built)).size / 1024 / 1024).toFixed(1);
+
+console.log(`\nBuilt ${built} (${sizeMb} MB, ${entries.length} entries)`);
+
+if (problems.length > 0) {
+  console.error('\nThis VSIX is not installable:');
+  for (const problem of problems) {
+    console.error(`  ${problem}`);
+  }
+  process.exit(1);
+}
+
+console.log('verified: required files present, no dev files or dev dependencies leaked');
 console.log('\nInstall with:');
-console.log(`  code --install-extension ${vsix.at(-1)}`);
+console.log(`  code --install-extension ${built} --force`);

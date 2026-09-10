@@ -2,13 +2,17 @@
 src/**
 scripts/**
 test/**
-node_modules/**
 tsconfig.json
 **/*.ts
 **/*.map
 **/*.pdb
 .sidecar-publish/**
 *.vsix
+
+# node_modules is NOT excluded. vsce bundles production dependencies and prunes dev ones, and
+# excluding the whole tree produced a VSIX that activated with
+# "Cannot find module 'vscode-jsonrpc/node'" -- it resolves locally during development, so the
+# failure only appears once installed.
 
 # media/ and server/ deliberately ship. The activity bar icon is loaded from the installed
 # extension, and the sidecar binary must be present -- downloading it on first run was rejected
