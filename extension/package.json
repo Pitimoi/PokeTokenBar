@@ -83,7 +83,8 @@
     "build:all": "npm run build:sidecar && npm run dev",
     "test": "npm run compile && node --test test/*.test.mjs",
     "test:all": "npm run build:sidecar && dotnet test ../dotnet/PokeTokenBar.slnx && npm test",
-    "package": "node scripts/package-vsix.mjs"
+    "package": "node scripts/package-vsix.mjs",
+    "install:local": "node scripts/install-local.mjs"
   },
   "dependencies": {
     "vscode-jsonrpc": "^8.2.1"

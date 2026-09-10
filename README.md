@@ -20,31 +20,46 @@ Nothing else. There is one NuGet dependency (`StreamJsonRpc`) and no build-time 
 
 ## Install it as a real extension
 
-To use it normally — no F5, no dev host, survives restarts — build a VSIX and install that:
+One command builds and installs it:
 
 ```bash
 cd extension
 npm install
-npm run package
-code --install-extension poketokenbar-win32-x64-0.1.0.vsix
+npm run install:local
 ```
 
-`npm run package` publishes the sidecar self-contained and single-file, stages it, compiles the
-TypeScript, and runs `vsce package`. The result is around 33 MB and needs **no .NET runtime on
-the target machine**, which is what makes it standalone.
+Then **reload VS Code** (`Developer: Reload Window`) so open windows pick it up.
 
-Three things about that number. The VSIX is **platform-specific**: it carries one platform's
-binary, so `win32-x64`, `darwin-arm64` and `linux-x64` are separate builds produced on matching
-machines. NativeAOT would cut the binary from 75 MB to a few, and is the intended release path,
-but it needs a full C++ toolchain (see [Releasing](#releasing)). And trimming is deliberately
-off: StreamJsonRpc's `Microsoft.VisualStudio.Threading` dependency emits trim warnings, and
-trimming an assembly that warns can strip code it needs at run time.
+After that it runs on its own. Activation is `onStartupFinished`, so VS Code starts the sidecar
+itself in every window -- no F5, no development host, and it survives restarts. Click the
+`$(graph)` item in the status bar to open the companion.
 
-To remove it again:
+If the `code` CLI is not on your `PATH`, either add it from the Command Palette
+(*Shell Command: Install 'code' command in PATH*) or install the built file by hand:
+
+```bash
+npm run package
+code --install-extension poketokenbar-win32-x64-0.1.0.vsix --force
+# or: Extensions view -> ... menu -> "Install from VSIX..."
+```
+
+To remove it:
 
 ```bash
 code --uninstall-extension kalmanbalint.poketokenbar
 ```
+
+### About the size
+
+The VSIX is around 33 MB and needs **no .NET runtime on the target machine**, which is what makes
+it standalone. Three things about that number.
+
+It is **platform-specific**: it carries one platform's binary, so `win32-x64`, `darwin-arm64` and
+`linux-x64` are separate builds produced on matching machines. NativeAOT would cut the binary
+from 75 MB to a few and is the intended release path, but it needs a full C++ toolchain (see
+[Releasing](#releasing)). And trimming is deliberately off: StreamJsonRpc's
+`Microsoft.VisualStudio.Threading` dependency emits trim warnings, and trimming an assembly that
+warns can strip code it needs at run time.
 
 ## Run it from source
 
