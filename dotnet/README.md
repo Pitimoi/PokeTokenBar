@@ -225,9 +225,10 @@ from the system tray:
   evolves it, and the final form completes the line, after which three new eggs appear.
 - The tray icon is the companion's sprite (a pokéball while eggs are on offer). Clicking it opens
   a small popup: the eggs to pick from, or the sprite at 3× with species number, rarity, stage,
-  progress and the feed button; below, the budget ledger and your token usage and cost for today,
-  this week and this month. It hides when it loses focus; **Refresh** and **Quit** are in the
-  popup, **Open** and **Quit** in the tray menu.
+  progress and the feed button; then the budget ledger and your Pokédex (every species you have
+  owned, as a scrollable grid of sprites). It hides when it loses focus; **Refresh** and **Quit**
+  are in the popup, **Open** and **Quit** in the tray menu. Token usage itself is published in
+  `status.json` for the status line rather than shown here.
 - The save is shared with the sidecar, so both hosts show the same companion and budget.
 - It also publishes machine-readable status for other tools — a Claude Code status line and
   spinner verbs are provided (see [Claude Code integration](#claude-code-integration)).
@@ -299,7 +300,7 @@ Everything the app writes lives in one folder — `~/.local/share/PokeTokenBar` 
 | `companion.json` | The save: budget ledger, eggs on offer or active companion, Pokédex, completed lines (shared with the sidecar). |
 | `pokedex/` | Cached species index, evolution chains and names (maintained by `Core`). |
 | `sprites/`, `icons/` | Cached sprites, and 64×64 crops of them for tools that render images. |
-| `status.json` | For other tools: current companion (id, name, stage, progress, dominant colour, sprite and icon paths) or `null` while eggs are on offer, the budget (available, earned, spent, prices, eggs on offer), last completed line, today's usage. Rewritten on every refresh, atomically. |
+| `status.json` | For other tools: current companion (id, name, stage, progress, dominant colour, sprite and icon paths) or `null` while eggs are on offer, the budget (available, earned, spent, prices, eggs on offer), last completed line, the Pokédex (ids, names, sprite paths), today's usage. Rewritten on every refresh, atomically. |
 | `claude-settings.json` | A Claude Code settings fragment carrying `spinnerVerbs` about the companion. |
 
 Everything but `companion.json` is a cache: deleting the folder loses the save, nothing else.
