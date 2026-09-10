@@ -22,23 +22,27 @@ internal static class SpinnerVerbs
     /// </summary>
     private const int IconImageId = 200;
 
-    private static readonly string[] Templates =
+    /// <summary>While a companion is being raised towards its next evolution.</summary>
+    private static readonly string[] RaisingTemplates =
     [
         "{icon} getting fed",
-        "Warming up {icon} egg",
-        "Playing with {icon}",
         "Training {icon}",
-        "{icon} gaining experience",
+        "Playing with {icon}",
         "Petting {icon}",
+        "{icon} gaining experience",
+        "{icon} growing up",
+        "Cheering {icon} on",
     ];
 
     /// <summary>While eggs are on offer and nothing has hatched yet.</summary>
-    private static readonly string[] EggTemplates =
+    private static readonly string[] HatchingTemplates =
     [
         "Keeping the eggs warm",
-        "Saving up for an egg",
-        "Eyeing the eggs",
         "Turning the eggs",
+        "Listening for a crack",
+        "Saving up for an egg",
+        "Picking an egg",
+        "Waiting for a hatch",
     ];
 
     private static readonly JsonSerializerOptions WriteOptions = new()
@@ -58,11 +62,11 @@ internal static class SpinnerVerbs
             var icon = current.IconPath is null
                 ? "#" + current.SpeciesId.ToString(CultureInfo.InvariantCulture)
                 : Placeholder(IconImageId);
-            verbs = Templates.Select(template => template.Replace("{icon}", icon, StringComparison.Ordinal)).ToArray();
+            verbs = RaisingTemplates.Select(template => template.Replace("{icon}", icon, StringComparison.Ordinal)).ToArray();
         }
         else
         {
-            verbs = EggTemplates;
+            verbs = HatchingTemplates;
         }
 
         var document = new JsonObject
