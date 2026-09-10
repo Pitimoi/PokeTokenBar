@@ -1,15 +1,19 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using PokeTokenBar.Core.Companions;
 using PokeTokenBar.Core.Io;
 
 namespace PokeTokenBar.Tray;
 
-/// <summary>What another tool needs to show the companion — a status line, a prompt, a widget.</summary>
+/// <summary>What another tool needs to show the game — a status line, a prompt, a widget.</summary>
 internal sealed record StatusDocument
 {
     public required DateTimeOffset UpdatedAt { get; init; }
 
-    public required StatusCurrent Current { get; init; }
+    /// <summary>The companion being raised, or null while eggs are on offer.</summary>
+    public StatusCurrent? Current { get; init; }
+
+    public required StatusBudget Budget { get; init; }
 
     public StatusSpecies? LastGraduated { get; init; }
 
@@ -18,6 +22,26 @@ internal sealed record StatusDocument
     public required long TodayTokens { get; init; }
 
     public required double TodayCost { get; init; }
+}
+
+internal sealed record StatusBudget
+{
+    public required long Available { get; init; }
+
+    public required long Earned { get; init; }
+
+    public required long Spent { get; init; }
+
+    public required long HatchPrice { get; init; }
+
+    public required long ClickCost { get; init; }
+
+    /// <summary>Eggs on offer; zero while a companion is active.</summary>
+    public required int OfferCount { get; init; }
+
+    public required bool CanHatch { get; init; }
+
+    public required bool CanAdvance { get; init; }
 }
 
 internal sealed record StatusSpecies
@@ -63,7 +87,6 @@ internal sealed record StatusCurrent
 
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase, WriteIndented = true)]
 [JsonSerializable(typeof(StatusDocument))]
-[JsonSerializable(typeof(Dictionary<string, string>))]
 internal sealed partial class StatusJsonContext : JsonSerializerContext
 {
 }
@@ -79,19 +102,32 @@ internal static class StatusExport
         var document = new StatusDocument
         {
             UpdatedAt = snapshot.ScannedAt,
-            Current = new StatusCurrent
+            Current = snapshot.Current is { } current
+                ? new StatusCurrent
+                {
+                    SpeciesId = current.SpeciesId,
+                    Name = current.Name,
+                    Color = current.Color,
+                    Sprite = current.SpritePath,
+                    Icon = current.IconPath,
+                    Stage = companion.SafeStageIndex + 1,
+                    TotalForms = companion.TotalForms,
+                    Progress = companion.StageProgress,
+                    TokensAtStage = companion.TokensAtStage,
+                    StageThreshold = companion.StageThreshold,
+                    Rarity = companion.Rarity.ToString(),
+                }
+                : null,
+            Budget = new StatusBudget
             {
-                SpeciesId = companion.CurrentSpeciesId,
-                Name = snapshot.Name,
-                Color = snapshot.Color,
-                Sprite = snapshot.SpritePath,
-                Icon = snapshot.IconPath,
-                Stage = companion.SafeStageIndex + 1,
-                TotalForms = companion.TotalForms,
-                Progress = companion.StageProgress,
-                TokensAtStage = companion.TokensAtStage,
-                StageThreshold = companion.StageThreshold,
-                Rarity = companion.Rarity.ToString(),
+                Available = snapshot.Available,
+                Earned = snapshot.Earned,
+                Spent = snapshot.Spent,
+                HatchPrice = CompanionEconomy.HatchPrice,
+                ClickCost = CompanionEconomy.ClickCost,
+                OfferCount = snapshot.OfferCount,
+                CanHatch = snapshot.CanHatch,
+                CanAdvance = snapshot.CanAdvance,
             },
             LastGraduated = snapshot.LastGraduated is { } last
                 ? new StatusSpecies { SpeciesId = last.SpeciesId, Name = last.Name, Color = last.Color, Sprite = last.SpritePath, Icon = last.IconPath }
