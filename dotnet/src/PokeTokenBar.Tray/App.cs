@@ -76,6 +76,22 @@ internal sealed class App : Application
         {
             var snapshot = await Task.Run(() => _scanner.ScanAsync(CancellationToken.None).AsTask()).ConfigureAwait(false);
             Dispatcher.UIThread.Post(() => Apply(snapshot));
+
+            try
+            {
+                StatusExport.Write(snapshot);
+            }
+            catch (IOException ex)
+            {
+                var message = ex.Message;
+                Dispatcher.UIThread.Post(() =>
+                {
+                    if (_window is not null)
+                    {
+                        _window.Status = "Status export failed: " + message;
+                    }
+                });
+            }
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
         {
