@@ -33,12 +33,20 @@ public sealed class CompanionStore
     /// <summary>True when the last load found an unusable file and set it aside.</summary>
     public bool RecoveredFromCorruption { get; private set; }
 
+    /// <summary>
+    /// True when the last load produced a brand new companion rather than reading one. The
+    /// caller uses this to replace the built-in fallback line with a real one.
+    /// </summary>
+    public bool HatchedFresh { get; private set; }
+
     public CompanionState Load()
     {
         RecoveredFromCorruption = false;
+        HatchedFresh = false;
 
         if (!SysIO.File.Exists(_path))
         {
+            HatchedFresh = true;
             return CompanionKeeper.Hatch();
         }
 
@@ -55,6 +63,7 @@ public sealed class CompanionStore
         catch (IOException)
         {
             // Unreadable for a transient reason. Do not destroy it; start fresh in memory only.
+            HatchedFresh = true;
             return CompanionKeeper.Hatch();
         }
     }
@@ -73,6 +82,7 @@ public sealed class CompanionStore
     private CompanionState Quarantine()
     {
         RecoveredFromCorruption = true;
+        HatchedFresh = true;
 
         try
         {

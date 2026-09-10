@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Reflection;
 using PokeTokenBar.Core.Companions;
+using PokeTokenBar.Core.Pokedex;
 using PokeTokenBar.Core.Sprites;
 using PokeTokenBar.Core.Usage;
 using PokeTokenBar.Sidecar.Protocol;
@@ -11,6 +12,7 @@ internal sealed class UsageService : IUsageService
 {
     private readonly CompanionStore _companions = new();
     private readonly SpriteCache _sprites = new();
+    private readonly SpeciesLibrary _library = new();
 
 
     public async ValueTask<UsageResponse> GetUsageAsync(CancellationToken cancellationToken)
@@ -90,7 +92,38 @@ internal sealed class UsageService : IUsageService
         UsageTotals today,
         CancellationToken cancellationToken)
     {
-        var update = CompanionKeeper.Apply(_companions.Load(), today);
+        var loaded = _companions.Load();
+
+        // A brand new companion is hatched from the built-in lines so that it always exists;
+        // replacing it with a real draw happens here, where awaiting is possible.
+        if (_companions.HatchedFresh)
+        {
+            loaded = loaded.WithLine(await _library.DrawAsync(loaded.Seed, cancellationToken).ConfigureAwait(false));
+        }
+
+        // A path that failed to fetch earlier gets another attempt, so a transient network
+        // failure does not leave a multi-form species stuck showing one form forever.
+        else if (!loaded.PathResolved && loaded.SpeciesPath.Count > 0)
+        {
+            var resolved = await _library
+                .ResolveAsync(loaded.SpeciesPath[0], loaded.Rarity, loaded.Seed, cancellationToken)
+                .ConfigureAwait(false);
+            if (resolved is not null)
+            {
+                loaded = loaded.WithResolvedPath(resolved);
+            }
+        }
+
+        var update = CompanionKeeper.Apply(loaded, today);
+
+        // Same again for the replacement after a graduation: Apply stays synchronous and
+        // testable, and the network-backed draw is layered on top of its result.
+        if (update.GraduatedSpeciesId is not null)
+        {
+            var drawn = await _library.DrawAsync(update.State.Seed, cancellationToken).ConfigureAwait(false);
+            update = update with { State = update.State.WithLine(drawn) };
+        }
+
         _companions.Save(update.State);
 
         var companion = update.State.ToCompanion();

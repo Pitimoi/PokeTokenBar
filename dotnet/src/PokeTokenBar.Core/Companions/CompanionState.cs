@@ -28,6 +28,13 @@ public sealed record CompanionState
     /// <summary>Lines completed so far, oldest first — the beginnings of a collection.</summary>
     public required IReadOnlyList<int> Graduated { get; init; }
 
+    /// <summary>
+    /// False when the evolution path could not be fetched and may be truncated. Not required,
+    /// so a save written before this existed reads as unresolved and gets one re-attempt rather
+    /// than staying wrong forever.
+    /// </summary>
+    public bool PathResolved { get; init; }
+
     public Companion ToCompanion() => new()
     {
         SpeciesPath = SpeciesPath,
@@ -49,6 +56,51 @@ public sealed record CompanionState
             WatermarkDay = string.Empty,
             WatermarkTokens = 0,
             Graduated = [],
+            PathResolved = false,
+        };
+    }
+
+    /// <summary>
+    /// Replaces the line while keeping identity and history: the seed, the day watermark and
+    /// the collection all survive, because only the species being raised is changing.
+    /// </summary>
+    public CompanionState WithLine(EvolutionLine line)
+    {
+        ArgumentNullException.ThrowIfNull(line);
+
+        return line.SpeciesPath.Count == 0
+            ? this
+            : this with
+            {
+                SpeciesPath = line.SpeciesPath,
+                Rarity = line.Rarity,
+                StageIndex = 0,
+                TokensAtStage = 0,
+                PathResolved = line.Resolved,
+            };
+    }
+
+    /// <summary>
+    /// Extends a previously truncated path in place, keeping the companion's progress. Only the
+    /// tail grows, so the stage it has already reached stays valid.
+    /// </summary>
+    public CompanionState WithResolvedPath(EvolutionLine line)
+    {
+        ArgumentNullException.ThrowIfNull(line);
+
+        // The replacement must start with the same species, or it is a different companion.
+        if (line.SpeciesPath.Count == 0
+            || SpeciesPath.Count == 0
+            || line.SpeciesPath[0] != SpeciesPath[0])
+        {
+            return this;
+        }
+
+        return this with
+        {
+            SpeciesPath = line.SpeciesPath,
+            StageIndex = Math.Clamp(StageIndex, 0, line.SpeciesPath.Count - 1),
+            PathResolved = true,
         };
     }
 

@@ -6,6 +6,13 @@ public sealed record EvolutionLine
     public required IReadOnlyList<int> SpeciesPath { get; init; }
 
     public required Rarity Rarity { get; init; }
+
+    /// <summary>
+    /// True when the path came from a real evolution chain. False means the chain could not be
+    /// fetched, so the path may be truncated and is worth re-resolving later — a transient
+    /// network failure must not permanently mislabel a three-form species as single-form.
+    /// </summary>
+    public bool Resolved { get; init; } = true;
 }
 
 /// <summary>
