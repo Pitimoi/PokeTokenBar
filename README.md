@@ -18,10 +18,38 @@ The original Swift sources remain in `Sources/` as the reference implementation.
 
 Nothing else. There is one NuGet dependency (`StreamJsonRpc`) and no build-time downloads.
 
-## Run it in VS Code
+## Install it as a real extension
 
-The extension is **not installed** — it runs from source, so it will never show up in the
-Extensions list until someone packages a VSIX.
+To use it normally — no F5, no dev host, survives restarts — build a VSIX and install that:
+
+```bash
+cd extension
+npm install
+npm run package
+code --install-extension poketokenbar-win32-x64-0.1.0.vsix
+```
+
+`npm run package` publishes the sidecar self-contained and single-file, stages it, compiles the
+TypeScript, and runs `vsce package`. The result is around 33 MB and needs **no .NET runtime on
+the target machine**, which is what makes it standalone.
+
+Three things about that number. The VSIX is **platform-specific**: it carries one platform's
+binary, so `win32-x64`, `darwin-arm64` and `linux-x64` are separate builds produced on matching
+machines. NativeAOT would cut the binary from 75 MB to a few, and is the intended release path,
+but it needs a full C++ toolchain (see [Releasing](#releasing)). And trimming is deliberately
+off: StreamJsonRpc's `Microsoft.VisualStudio.Threading` dependency emits trim warnings, and
+trimming an assembly that warns can strip code it needs at run time.
+
+To remove it again:
+
+```bash
+code --uninstall-extension kalmanbalint.poketokenbar
+```
+
+## Run it from source
+
+For development, run it from source instead of installing. It will not appear in the Extensions
+list this way.
 
 **1. Build the sidecar and stage it into the extension.**
 

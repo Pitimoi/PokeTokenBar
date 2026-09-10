@@ -1,13 +1,15 @@
 .vscode/**
 src/**
 scripts/**
+test/**
 node_modules/**
 tsconfig.json
 **/*.ts
 **/*.map
+**/*.pdb
+.sidecar-publish/**
+*.vsix
 
-# media/ ships too: the activity bar icon is loaded from the installed extension.
-
-# server/ is intentionally NOT ignored: the platform-specific sidecar binary ships in the VSIX.
-# Downloading it on first run was rejected — it would reintroduce the unverified-artifact
-# problem the Swift release pipeline has today.
+# media/ and server/ deliberately ship. The activity bar icon is loaded from the installed
+# extension, and the sidecar binary must be present -- downloading it on first run was rejected
+# because it would reintroduce the unverified-artifact problem the Swift release pipeline has.

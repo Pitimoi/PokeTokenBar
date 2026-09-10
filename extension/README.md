@@ -2,7 +2,7 @@
 
 Status bar item showing today's AI-tool token usage, fed by the C# sidecar in `../dotnet`.
 Architecture and the security invariants this host has to uphold are in
-[`../dotnet/README.md`](../dotnet/README.md).
+[`dotnet/README.md`](https://github.com/kalmanbalint/PokeTokenBar/blob/VS_csharp-port/dotnet/README.md).
 
 ## Running it
 

@@ -3,8 +3,14 @@
   "displayName": "PokeTokenBar",
   "description": "AI coding tool usage in your status bar",
   "version": "0.1.0",
+  "publisher": "kalmanbalint",
   "private": true,
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/kalmanbalint/PokeTokenBar.git"
+  },
+  "icon": "media/icon.png",
   "engines": {
     "vscode": "^1.90.0"
   },
@@ -76,7 +82,8 @@
     "dev": "npm run copy-sidecar && npm run compile",
     "build:all": "npm run build:sidecar && npm run dev",
     "test": "npm run compile && node --test test/*.test.mjs",
-    "test:all": "npm run build:sidecar && dotnet test ../dotnet/PokeTokenBar.slnx && npm test"
+    "test:all": "npm run build:sidecar && dotnet test ../dotnet/PokeTokenBar.slnx && npm test",
+    "package": "node scripts/package-vsix.mjs"
   },
   "dependencies": {
     "vscode-jsonrpc": "^8.2.1"
@@ -84,6 +91,7 @@
   "devDependencies": {
     "@types/node": "^22.10.2",
     "@types/vscode": "^1.90.0",
+    "@vscode/vsce": "^3.9.2",
     "typescript": "^5.7.2"
   }
 }
