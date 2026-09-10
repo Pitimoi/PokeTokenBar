@@ -8,6 +8,7 @@ using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
 using PokeTokenBar.Core.Companions;
+using PokeTokenBar.Core.Sprites;
 
 namespace PokeTokenBar.Tray;
 
@@ -312,7 +313,7 @@ internal sealed class CompanionWindow : Window
             {
                 var p = row + x * 4;
                 // Channel order does not matter for a luminance average; the alpha stays put.
-                var grey = (byte)((p[0] * 30 + p[1] * 59 + p[2] * 11) / 100);
+                var grey = SpriteDesaturate.Luminance(p[0], p[1], p[2]);
                 p[0] = grey;
                 p[1] = grey;
                 p[2] = grey;
