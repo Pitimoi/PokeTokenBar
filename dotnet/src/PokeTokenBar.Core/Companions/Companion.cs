@@ -32,6 +32,13 @@ public sealed record Companion
     /// <summary>Forms actually reached, for rendering the line so far.</summary>
     public IReadOnlyList<int> ReachedForms => SpeciesPath.Take(SafeStageIndex + 1).ToArray();
 
+    /// <summary>
+    /// The one species still "in progress": the current stage of a line that has not yet
+    /// graduated. Every other reached form — earlier stages of this same line included — is
+    /// locked in as owned, so only this one is worth marking as not finished yet.
+    /// </summary>
+    public int? PendingSpeciesId => SpeciesPath.Count > 0 && !HasGraduated ? CurrentSpeciesId : null;
+
     public bool IsFinalStage => SafeStageIndex >= TotalForms - 1;
 
     /// <summary>Tokens needed at the current form to evolve, or to graduate if it is the last.</summary>

@@ -254,3 +254,57 @@ public sealed class CompanionProgressionTests
         Assert.Empty(advance.Evolutions);
     }
 }
+
+public sealed class PendingSpeciesIdTests
+{
+    private static Companion Fresh(int forms = 3, Rarity rarity = Rarity.Common) =>
+        Companion.Hatch(Enumerable.Range(1, forms).ToArray(), rarity);
+
+    [Fact]
+    public void TheFirstFormOfAFreshLineIsPending()
+    {
+        Assert.Equal(1, Fresh().PendingSpeciesId);
+    }
+
+    [Fact]
+    public void AMidLineFormStaysPendingRegardlessOfEarlierFormsAlreadyReached()
+    {
+        var companion = Fresh() with { StageIndex = 1 };
+
+        Assert.Equal(2, companion.PendingSpeciesId);
+    }
+
+    [Fact]
+    public void TheFinalFormIsPendingUntilItsThresholdIsMet()
+    {
+        var companion = Fresh() with
+        {
+            StageIndex = 2,
+            TokensAtStage = PokemonBalance.PhaseThreshold(Rarity.Common, 3, 2) - 1,
+        };
+
+        Assert.False(companion.HasGraduated);
+        Assert.Equal(3, companion.PendingSpeciesId);
+    }
+
+    [Fact]
+    public void NothingIsPendingOnceTheLineHasGraduated()
+    {
+        var companion = Fresh() with
+        {
+            StageIndex = 2,
+            TokensAtStage = PokemonBalance.PhaseThreshold(Rarity.Common, 3, 2),
+        };
+
+        Assert.True(companion.HasGraduated);
+        Assert.Null(companion.PendingSpeciesId);
+    }
+
+    [Fact]
+    public void NothingIsPendingWithoutAnActiveLine()
+    {
+        var companion = new Companion { SpeciesPath = [], StageIndex = 0, TokensAtStage = 0, Rarity = Rarity.Common };
+
+        Assert.Null(companion.PendingSpeciesId);
+    }
+}
