@@ -13,7 +13,8 @@ namespace PokeTokenBar.Tray;
     Justification = "The tray icon lives exactly as long as the process; Application is not disposable.")]
 internal sealed class App : Application
 {
-    private static readonly TimeSpan RefreshInterval = TimeSpan.FromMinutes(1);
+    // Short enough to catch another writer's update quickly; a scan is only seconds of work.
+    private static readonly TimeSpan RefreshInterval = TimeSpan.FromSeconds(15);
 
     private readonly CompanionService _service = new();
 
