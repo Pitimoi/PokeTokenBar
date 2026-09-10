@@ -86,9 +86,36 @@ export class CompanionViewProvider implements vscode.WebviewViewProvider {
   }
 
   private page(response: UsageResponse, webview: vscode.Webview): string {
+    return this.shell(
+      this.layout(response, webview),
+      webview.cspSource,
+      this.barCss(response.companion),
+    );
+  }
+
+  /**
+   * The fill width, as a rule for the nonced style block rather than a `style` attribute.
+   *
+   * `style-src` governs inline style attributes as well as `<style>` elements, and a nonce can
+   * only ever apply to the element — there is no way to nonce an attribute. So under this CSP
+   * an attribute width is dropped and the bar renders empty at every level of progress. Adding
+   * `'unsafe-inline'` is not the alternative: a directive carrying a nonce ignores it, so
+   * allowing the attribute would mean giving up the nonce to move a progress bar.
+   */
+  private barCss(companion: CompanionInfo): string {
+    return `.fill { width: ${this.percent(companion)}%; }`;
+  }
+
+  /** Progress through the current form as a whole number, safe to interpolate into CSS. */
+  private percent(companion: CompanionInfo): number {
+    const progress = Number(companion.stageProgress);
+    return Number.isFinite(progress) ? Math.round(Math.max(0, Math.min(1, progress)) * 100) : 0;
+  }
+
+  private layout(response: UsageResponse, webview: vscode.Webview): string {
     const { companion, today, week, month } = response;
 
-    const body = `
+    return `
       <div class="budget">${escapeHtml(formatTokens(companion.budget))}</div>
       <div class="meta">banked · ${escapeHtml(formatTokens(companion.earned))} earned ·
         ${escapeHtml(formatTokens(companion.spent))} spent</div>
@@ -101,8 +128,6 @@ export class CompanionViewProvider implements vscode.WebviewViewProvider {
       </table>
       ${this.pokedex(companion, webview)}
     `;
-
-    return this.shell(body, webview.cspSource);
   }
 
   /**
@@ -141,8 +166,17 @@ export class CompanionViewProvider implements vscode.WebviewViewProvider {
   }
 
   private companion(companion: CompanionInfo, webview: vscode.Webview): string {
-    const percent = Math.round(Math.max(0, Math.min(1, companion.stageProgress)) * 100);
+    const percent = this.percent(companion);
     const cost = formatTokens(companion.clickCost);
+
+    // What is left to buy, in the unit the player actually spends. A percentage alone does not
+    // answer "how many more times do I press this".
+    const remaining = Math.max(0, companion.stageThreshold - companion.tokensAtStage);
+    const presses = companion.clickCost > 0 ? Math.ceil(remaining / companion.clickCost) : 0;
+    const last = companion.stageIndex + 1 >= companion.totalForms;
+    const toGo = presses <= 0
+      ? 'ready'
+      : `${presses} press${presses === 1 ? '' : 'es'} to ${last ? 'complete' : 'evolve'}`;
 
     const feed = companion.canAdvance
       ? `<a class="feed" href="${escapeHtml(
@@ -160,9 +194,10 @@ export class CompanionViewProvider implements vscode.WebviewViewProvider {
       <div class="meta">#${companion.speciesId}</div>
       <div class="meta">${escapeHtml(companion.rarity)} · stage
         ${escapeHtml(`${companion.stageIndex + 1} / ${companion.totalForms}`)}</div>
-      <div class="bar"><div class="fill" style="width:${percent}%"></div></div>
+      <div class="bar"><div class="fill"></div></div>
       <div class="meta">${escapeHtml(formatTokens(companion.tokensAtStage))} /
         ${escapeHtml(formatTokens(companion.stageThreshold))} · ${percent}%</div>
+      <div class="meta">${escapeHtml(toGo)}</div>
       <div class="actions">${feed}</div>
       ${companion.justHatched ? '<div class="event">It hatched!</div>' : ''}
       ${companion.justGraduated ? '<div class="event">A line completed!</div>' : ''}
@@ -249,7 +284,7 @@ export class CompanionViewProvider implements vscode.WebviewViewProvider {
     return `<img src="${escapeHtml(uri.toString())}" alt="companion" />`;
   }
 
-  private shell(body: string, cspSource: string): string {
+  private shell(body: string, cspSource: string, dynamicCss = ''): string {
     // A nonce for the one inline style block. Scripts are not merely nonce-gated but disabled,
     // and default-src 'none' means anything not listed here cannot load at all. Command links
     // are unaffected: the click is intercepted and never navigates.
@@ -308,6 +343,7 @@ export class CompanionViewProvider implements vscode.WebviewViewProvider {
     table { margin: 12px auto 0; font-size: 0.85em; border-collapse: collapse; }
     th { text-align: left; font-weight: 400; opacity: 0.75; padding-right: 10px; }
     td { text-align: right; font-variant-numeric: tabular-nums; }
+    ${dynamicCss}
   </style>
 </head>
 <body>${body}</body>

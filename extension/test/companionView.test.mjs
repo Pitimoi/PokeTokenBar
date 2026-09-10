@@ -192,11 +192,63 @@ test('a rarity that tries to break out of the style block cannot', () => {
   assert.doesNotMatch(html, /<\/style><script/);
 });
 
+test('no inline style attribute is ever emitted', () => {
+  // style-src governs style attributes as well as <style> elements, and a nonce cannot apply
+  // to an attribute — so anything styled this way is silently dropped and renders unstyled.
+  // That is what left the progress bar permanently empty. Asserted over the whole class rather
+  // than the one element that had it.
+  for (const html of [render().html, renderOffer().html, render({ pokedex: [1, 2] }).html]) {
+    const body = html.slice(html.indexOf('<body>'));
+    assert.doesNotMatch(body, /\sstyle\s*=/, 'style attributes are dropped by this CSP');
+  }
+});
+
+test('the fill width arrives as a rule inside the nonced style block', () => {
+  // The width has to be somewhere the nonce covers, or the bar cannot move at all.
+  const { html } = render({ stageProgress: 0.42 });
+  const nonce = html.match(/<style nonce="([^"]+)">([\s\S]*?)<\/style>/);
+
+  assert.ok(nonce, 'expected a nonced style block');
+  assert.match(nonce[2], /\.fill\s*\{[^}]*width:\s*42%/);
+  assert.match(html, new RegExp(`style-src 'nonce-${nonce[1].replace(/[+/=]/g, '\\$&')}'`));
+});
+
 test('progress width is clamped so it cannot overflow the bar', () => {
-  const high = render({ stageProgress: 47 }).html;
-  const low = render({ stageProgress: -3 }).html;
-  assert.match(high, /width:100%/);
-  assert.match(low, /width:0%/);
+  assert.match(render({ stageProgress: 47 }).html, /\.fill\s*\{[^}]*width:\s*100%/);
+  assert.match(render({ stageProgress: -3 }).html, /\.fill\s*\{[^}]*width:\s*0%/);
+});
+
+test('a non-numeric progress cannot reach the stylesheet', () => {
+  // The width is interpolated into CSS, so it must be a number and nothing else.
+  for (const progress of [NaN, undefined, null, '50%; } body { display: none } .x {']) {
+    const { html } = render({ stageProgress: progress });
+    assert.match(html, /\.fill\s*\{\s*width:\s*\d+%;\s*\}/, `broke on ${String(progress)}`);
+    assert.doesNotMatch(html, /display: none/);
+  }
+});
+
+test('says how many presses are left, in the unit actually spent', () => {
+  const { html } = render({
+    tokensAtStage: 300_000_000,
+    stageThreshold: 375_000_000,
+    clickCost: 25_000_000,
+    stageIndex: 0,
+    totalForms: 3,
+  });
+
+  assert.match(html, /3 presses to evolve/);
+});
+
+test('the last form completes a line rather than evolving', () => {
+  const { html } = render({
+    tokensAtStage: 350_000_000,
+    stageThreshold: 375_000_000,
+    clickCost: 25_000_000,
+    stageIndex: 2,
+    totalForms: 3,
+  });
+
+  assert.match(html, /1 press to complete/);
 });
 
 test('announces a hatch, an evolution and a graduation when they happen', () => {
