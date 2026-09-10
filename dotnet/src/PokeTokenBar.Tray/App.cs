@@ -15,12 +15,12 @@ internal sealed class App : Application
 {
     private static readonly TimeSpan RefreshInterval = TimeSpan.FromMinutes(1);
 
-    private readonly UsageScanner _scanner = new();
+    private readonly CompanionService _service = new();
 
     private TrayIcon? _tray;
     private CompanionWindow? _window;
     private string? _iconPath;
-    private bool _refreshing;
+    private bool _busy;
 
     public override void Initialize()
     {
@@ -31,7 +31,9 @@ internal sealed class App : Application
     public override void OnFrameworkInitializationCompleted()
     {
         _window = new CompanionWindow { Status = "Scanning…" };
-        _window.RefreshRequested += (_, _) => Refresh();
+        _window.RefreshRequested += (_, _) => Run(_service.ScanAsync);
+        _window.AdvanceRequested += (_, _) => Run(_service.AdvanceAsync);
+        _window.HatchRequested += index => Run(token => _service.ChooseEggAsync(index, token));
         _window.QuitRequested += (_, _) => Quit();
 
         var open = new NativeMenuItem("Open");
@@ -51,31 +53,32 @@ internal sealed class App : Application
         TrayIcon.SetIcons(this, [_tray]);
 
         var timer = new DispatcherTimer { Interval = RefreshInterval };
-        timer.Tick += (_, _) => Refresh();
+        timer.Tick += (_, _) => Run(_service.ScanAsync);
         timer.Start();
 
-        Refresh();
+        Run(_service.ScanAsync);
         base.OnFrameworkInitializationCompleted();
     }
 
     private void Quit() => (ApplicationLifetime as IClassicDesktopStyleApplicationLifetime)?.Shutdown();
 
-    private void Refresh()
+    /// <summary>Runs one game operation off the UI thread; at most one at a time.</summary>
+    private void Run(Func<CancellationToken, ValueTask<UsageSnapshot>> operation)
     {
-        if (_refreshing)
+        if (_busy)
         {
             return;
         }
 
-        _refreshing = true;
-        _ = RefreshAsync();
+        _busy = true;
+        _ = RunAsync(operation);
     }
 
-    private async Task RefreshAsync()
+    private async Task RunAsync(Func<CancellationToken, ValueTask<UsageSnapshot>> operation)
     {
         try
         {
-            var snapshot = await Task.Run(() => _scanner.ScanAsync(CancellationToken.None).AsTask()).ConfigureAwait(false);
+            var snapshot = await Task.Run(() => operation(CancellationToken.None).AsTask()).ConfigureAwait(false);
             Dispatcher.UIThread.Post(() => Apply(snapshot));
 
             try
@@ -85,32 +88,26 @@ internal sealed class App : Application
             }
             catch (Exception ex) when (ex is IOException or JsonException)
             {
-                var message = ex.Message;
-                Dispatcher.UIThread.Post(() =>
-                {
-                    if (_window is not null)
-                    {
-                        _window.Status = "Export failed: " + message;
-                    }
-                });
+                Report("Export failed: " + ex.Message);
             }
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException or HttpRequestException)
         {
-            var message = ex.Message;
-            Dispatcher.UIThread.Post(() =>
-            {
-                if (_window is not null)
-                {
-                    _window.Status = "Scan failed: " + message;
-                }
-            });
+            Report("Failed: " + ex.Message);
         }
         finally
         {
-            Dispatcher.UIThread.Post(() => _refreshing = false);
+            Dispatcher.UIThread.Post(() => _busy = false);
         }
     }
+
+    private void Report(string message) => Dispatcher.UIThread.Post(() =>
+    {
+        if (_window is not null)
+        {
+            _window.Status = message;
+        }
+    });
 
     private void Apply(UsageSnapshot snapshot)
     {
@@ -121,25 +118,39 @@ internal sealed class App : Application
 
         _window.Update(snapshot);
 
-        var companion = snapshot.Companion;
-        var percent = (int)Math.Round(companion.StageProgress * 100);
-        _tray.ToolTipText = string.Create(
-            CultureInfo.InvariantCulture,
-            $"Today {TokenFormat.Compact(snapshot.Today.Total)} ({TokenFormat.Cost(snapshot.Today.Cost)}) · #{companion.CurrentSpeciesId} {percent}%");
-
-        if (snapshot.SpritePath is not null && !string.Equals(snapshot.SpritePath, _iconPath, StringComparison.Ordinal))
+        if (snapshot.Current is { } current)
         {
-            try
-            {
-                _tray.Icon = TrayIconRenderer.FromSprite(snapshot.SpritePath);
-            }
-            catch (Exception ex) when (ex is ArgumentException or IOException)
-            {
-                // A sprite the cache accepted but the decoder rejects: keep whatever icon is showing.
-                _window.Status = "Sprite unreadable: " + Path.GetFileName(snapshot.SpritePath);
-            }
+            var percent = (int)Math.Round(snapshot.Companion.StageProgress * 100);
+            _tray.ToolTipText = string.Create(
+                CultureInfo.InvariantCulture,
+                $"#{current.SpeciesId} {percent}% · budget {TokenFormat.Compact(snapshot.Available)} · today {TokenFormat.Compact(snapshot.Today.Total)}");
 
-            _iconPath = snapshot.SpritePath;
+            if (current.SpritePath is not null && !string.Equals(current.SpritePath, _iconPath, StringComparison.Ordinal))
+            {
+                try
+                {
+                    _tray.Icon = TrayIconRenderer.FromSprite(current.SpritePath);
+                }
+                catch (Exception ex) when (ex is ArgumentException or IOException)
+                {
+                    // A sprite the cache accepted but the decoder rejects: keep whatever icon is showing.
+                    _window.Status = "Sprite unreadable: " + Path.GetFileName(current.SpritePath);
+                }
+
+                _iconPath = current.SpritePath;
+            }
+        }
+        else
+        {
+            _tray.ToolTipText = string.Create(
+                CultureInfo.InvariantCulture,
+                $"{snapshot.OfferCount} eggs waiting · budget {TokenFormat.Compact(snapshot.Available)} · today {TokenFormat.Compact(snapshot.Today.Total)}");
+
+            if (_iconPath is not null)
+            {
+                _tray.Icon = TrayIconRenderer.Placeholder();
+                _iconPath = null;
+            }
         }
     }
 }

@@ -1,15 +1,17 @@
 using System.Globalization;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Shapes;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
+using PokeTokenBar.Core.Companions;
 
 namespace PokeTokenBar.Tray;
 
 /// <summary>
-/// The popup behind the tray icon: borderless, anchored to the top-right corner, gone as soon as
-/// it loses focus. Left-clicking the icon toggles it.
+/// The popup behind the tray icon: borderless, docked in a corner, gone as soon as it loses
+/// focus. Shows either the eggs on offer or the active companion, plus budget and usage.
 /// </summary>
 internal sealed class CompanionWindow : Window
 {
@@ -35,6 +37,14 @@ internal sealed class CompanionWindow : Window
     private readonly TextBlock _stage = Label(13, opacity: 0.7);
     private readonly ProgressBar _progress = new() { Minimum = 0, Maximum = 1, Height = 8, Margin = new Thickness(0, 6, 0, 0) };
     private readonly TextBlock _progressText = Label(12, opacity: 0.7);
+    private readonly Button _feed = new() { HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 10, 0, 0) };
+    private readonly StackPanel _companionPanel = new() { Spacing = 2 };
+
+    private readonly Button[] _eggs = new Button[CompanionEconomy.OfferSize];
+    private readonly TextBlock _offerHint = Label(12, opacity: 0.7);
+    private readonly StackPanel _offerPanel = new() { Spacing = 2 };
+
+    private readonly TextBlock _budget = Label(13);
     private readonly TextBlock _today = Value();
     private readonly TextBlock _week = Value();
     private readonly TextBlock _month = Value();
@@ -62,6 +72,11 @@ internal sealed class CompanionWindow : Window
     public event EventHandler? RefreshRequested;
 
     public event EventHandler? QuitRequested;
+
+    public event EventHandler? AdvanceRequested;
+
+    /// <summary>Raised with the index of the egg chosen from the offer.</summary>
+    public event Action<int>? HatchRequested;
 
     public string Status
     {
@@ -94,42 +109,54 @@ internal sealed class CompanionWindow : Window
 
     public void Update(UsageSnapshot snapshot)
     {
-        var companion = snapshot.Companion;
-        var percent = (int)Math.Round(companion.StageProgress * 100);
+        var hasCompanion = snapshot.Current is not null;
+        _companionPanel.IsVisible = hasCompanion;
+        _offerPanel.IsVisible = !hasCompanion;
 
-        _species.Text = string.Create(CultureInfo.InvariantCulture, $"#{companion.CurrentSpeciesId} · {companion.Rarity}");
-        _stage.Text = string.Create(CultureInfo.InvariantCulture, $"Stage {companion.SafeStageIndex + 1} of {companion.TotalForms}");
-        _progress.Value = companion.StageProgress;
-        _progressText.Text = string.Create(
+        if (snapshot.Current is { } current)
+        {
+            var companion = snapshot.Companion;
+            var percent = (int)Math.Round(companion.StageProgress * 100);
+
+            _species.Text = string.Create(CultureInfo.InvariantCulture, $"#{current.SpeciesId} · {companion.Rarity}");
+            _stage.Text = string.Create(CultureInfo.InvariantCulture, $"Stage {companion.SafeStageIndex + 1} of {companion.TotalForms}");
+            _progress.Value = companion.StageProgress;
+            _progressText.Text = string.Create(
+                CultureInfo.InvariantCulture,
+                $"{TokenFormat.Compact(companion.TokensAtStage)} / {TokenFormat.Compact(companion.StageThreshold)} · {percent}%");
+            _feed.Content = "Feed " + TokenFormat.Compact(CompanionEconomy.ClickCost);
+            _feed.IsEnabled = snapshot.CanAdvance;
+
+            if (current.SpritePath is not null && !string.Equals(current.SpritePath, _spritePath, StringComparison.Ordinal))
+            {
+                ShowSprite(current.SpritePath);
+                _spritePath = current.SpritePath;
+            }
+        }
+        else
+        {
+            for (var i = 0; i < _eggs.Length; i++)
+            {
+                _eggs[i].IsVisible = i < snapshot.OfferCount;
+                _eggs[i].IsEnabled = snapshot.CanHatch;
+            }
+
+            _offerHint.Text = snapshot.CanHatch
+                ? "Pick one to hatch it · " + TokenFormat.Compact(CompanionEconomy.HatchPrice) + " tokens"
+                : string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"Hatching costs {TokenFormat.Compact(CompanionEconomy.HatchPrice)} · {TokenFormat.Compact(CompanionEconomy.HatchPrice - snapshot.Available)} to go");
+        }
+
+        _budget.Text = string.Create(
             CultureInfo.InvariantCulture,
-            $"{TokenFormat.Compact(companion.TokensAtStage)} / {TokenFormat.Compact(companion.StageThreshold)} · {percent}%");
+            $"Budget {TokenFormat.Compact(snapshot.Available)} · earned {TokenFormat.Compact(snapshot.Earned)} · spent {TokenFormat.Compact(snapshot.Spent)}");
 
         _today.Text = Amount(snapshot.Today.Total, snapshot.Today.Cost);
         _week.Text = Amount(snapshot.Week.Total, snapshot.Week.Cost);
         _month.Text = Amount(snapshot.Month.Total, snapshot.Month.Cost);
 
-        var status = "Updated " + snapshot.ScannedAt.ToString("HH:mm", CultureInfo.InvariantCulture);
-        if (snapshot.GraduatedCount > 0)
-        {
-            status += string.Create(CultureInfo.InvariantCulture, $" · {snapshot.GraduatedCount} lines completed");
-        }
-
-        if (snapshot.GraduatedSpeciesId is not null)
-        {
-            status += " · A line completed!";
-        }
-        else if (snapshot.Evolutions.Count > 0)
-        {
-            status += " · It evolved!";
-        }
-
-        _status.Text = status;
-
-        if (snapshot.SpritePath is not null && !string.Equals(snapshot.SpritePath, _spritePath, StringComparison.Ordinal))
-        {
-            ShowSprite(snapshot.SpritePath);
-            _spritePath = snapshot.SpritePath;
-        }
+        _status.Text = StatusLine(snapshot);
     }
 
     protected override void OnClosing(WindowClosingEventArgs e)
@@ -138,6 +165,35 @@ internal sealed class CompanionWindow : Window
         e.Cancel = true;
         Hide();
         base.OnClosing(e);
+    }
+
+    private static string StatusLine(UsageSnapshot snapshot)
+    {
+        if (snapshot.Refusal is not null)
+        {
+            return snapshot.Refusal;
+        }
+
+        var status = "Updated " + snapshot.ScannedAt.ToString("HH:mm", CultureInfo.InvariantCulture);
+        if (snapshot.GraduatedCount > 0)
+        {
+            status += string.Create(CultureInfo.InvariantCulture, $" · {snapshot.GraduatedCount} lines completed");
+        }
+
+        if (snapshot.HatchedSpeciesId is not null)
+        {
+            status += " · It hatched!";
+        }
+        else if (snapshot.GraduatedSpeciesId is not null)
+        {
+            status += " · A line completed!";
+        }
+        else if (snapshot.Evolutions.Count > 0)
+        {
+            status += " · It evolved!";
+        }
+
+        return status;
     }
 
     private void ShowSprite(string path)
@@ -150,7 +206,7 @@ internal sealed class CompanionWindow : Window
         }
         catch (Exception ex) when (ex is ArgumentException or IOException)
         {
-            _status.Text = "Sprite unreadable: " + Path.GetFileName(path);
+            _status.Text = "Sprite unreadable: " + System.IO.Path.GetFileName(path);
         }
     }
 
@@ -184,6 +240,44 @@ internal sealed class CompanionWindow : Window
 
     private Border Build()
     {
+        _feed.Click += (_, _) => AdvanceRequested?.Invoke(this, EventArgs.Empty);
+        _companionPanel.Children.Add(_sprite);
+        _companionPanel.Children.Add(_species);
+        _companionPanel.Children.Add(_stage);
+        _companionPanel.Children.Add(_progress);
+        _companionPanel.Children.Add(_progressText);
+        _companionPanel.Children.Add(_feed);
+
+        var eggRow = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 16,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            Margin = new Thickness(0, 24, 0, 12),
+        };
+        for (var i = 0; i < _eggs.Length; i++)
+        {
+            var index = i;
+            _eggs[i] = new Button
+            {
+                Padding = new Thickness(14, 10),
+                Content = new Ellipse
+                {
+                    Width = 30,
+                    Height = 40,
+                    Fill = new SolidColorBrush(Color.Parse("#F3E5C3")),
+                    Stroke = new SolidColorBrush(Color.Parse("#B8A47C")),
+                    StrokeThickness = 1.5,
+                },
+            };
+            _eggs[i].Click += (_, _) => HatchRequested?.Invoke(index);
+            eggRow.Children.Add(_eggs[i]);
+        }
+
+        _offerPanel.Children.Add(Label(18, FontWeight.SemiBold, text: "Choose an egg"));
+        _offerPanel.Children.Add(eggRow);
+        _offerPanel.Children.Add(_offerHint);
+
         var refresh = new Button { Content = "Refresh" };
         refresh.Click += (_, _) => RefreshRequested?.Invoke(this, EventArgs.Empty);
 
@@ -209,6 +303,8 @@ internal sealed class CompanionWindow : Window
         AddRow(usage, 1, "This week", _week);
         AddRow(usage, 2, "This month", _month);
 
+        _budget.Margin = new Thickness(0, 12, 0, 0);
+
         return new Border
         {
             Padding = new Thickness(20),
@@ -219,11 +315,9 @@ internal sealed class CompanionWindow : Window
                 Spacing = 2,
                 Children =
                 {
-                    _sprite,
-                    _species,
-                    _stage,
-                    _progress,
-                    _progressText,
+                    _companionPanel,
+                    _offerPanel,
+                    _budget,
                     usage,
                     _status,
                     buttons,
@@ -243,8 +337,9 @@ internal sealed class CompanionWindow : Window
         grid.Children.Add(value);
     }
 
-    private static TextBlock Label(double size, FontWeight weight = FontWeight.Normal, double opacity = 1) => new()
+    private static TextBlock Label(double size, FontWeight weight = FontWeight.Normal, double opacity = 1, string? text = null) => new()
     {
+        Text = text,
         FontSize = size,
         FontWeight = weight,
         Opacity = opacity,

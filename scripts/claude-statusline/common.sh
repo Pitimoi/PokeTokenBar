@@ -29,6 +29,12 @@ bar() { # $1 = percent 0..100 -> 10-cell bar
   printf '%s' "${fill// /█}${pad// /░}"
 }
 
+compact() { # token count -> 1.2K / 3.4M / 1.1B
+  awk -v n="$1" 'BEGIN {
+    if (n >= 1e9) printf "%.1fB", n / 1e9; else if (n >= 1e6) printf "%.1fM", n / 1e6;
+    else if (n >= 1e3) printf "%.1fK", n / 1e3; else printf "%d", n }'
+}
+
 truecolor() { # "#RRGGBB" -> ANSI foreground escape (empty when no colour)
   [ "${#1}" -eq 7 ] || return 0
   printf '\033[38;2;%d;%d;%dm' "0x${1:1:2}" "0x${1:3:2}" "0x${1:5:2}"

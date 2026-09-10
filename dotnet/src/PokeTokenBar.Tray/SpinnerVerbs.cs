@@ -32,6 +32,15 @@ internal static class SpinnerVerbs
         "Petting {icon}",
     ];
 
+    /// <summary>While eggs are on offer and nothing has hatched yet.</summary>
+    private static readonly string[] EggTemplates =
+    [
+        "Keeping the eggs warm",
+        "Saving up for an egg",
+        "Eyeing the eggs",
+        "Turning the eggs",
+    ];
+
     private static readonly JsonSerializerOptions WriteOptions = new()
     {
         WriteIndented = true,
@@ -43,10 +52,18 @@ internal static class SpinnerVerbs
     /// <summary>Returns true when the file was rewritten.</summary>
     public static bool Update(UsageSnapshot snapshot)
     {
-        var icon = snapshot.IconPath is null
-            ? "#" + snapshot.Companion.CurrentSpeciesId.ToString(CultureInfo.InvariantCulture)
-            : Placeholder(IconImageId);
-        var verbs = Templates.Select(template => template.Replace("{icon}", icon, StringComparison.Ordinal)).ToArray();
+        string[] verbs;
+        if (snapshot.Current is { } current)
+        {
+            var icon = current.IconPath is null
+                ? "#" + current.SpeciesId.ToString(CultureInfo.InvariantCulture)
+                : Placeholder(IconImageId);
+            verbs = Templates.Select(template => template.Replace("{icon}", icon, StringComparison.Ordinal)).ToArray();
+        }
+        else
+        {
+            verbs = EggTemplates;
+        }
 
         var document = new JsonObject
         {
