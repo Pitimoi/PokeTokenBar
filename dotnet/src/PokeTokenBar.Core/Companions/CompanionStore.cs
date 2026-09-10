@@ -65,15 +65,55 @@ public sealed class CompanionStore
         }
     }
 
+    /// <summary>True when the last save was skipped to avoid overwriting a newer save.</summary>
+    public bool RefusedToDowngrade { get; private set; }
+
+    /// <summary>
+    /// Writes the save, unless the file on disk was written by a build newer than this one.
+    /// </summary>
+    /// <remarks>
+    /// The save is shared by every editor window on the machine, and separate installs update
+    /// independently, so two versions can meet over one file. Round-tripping a save through a
+    /// build that does not know one of its fields silently drops it — measured as the
+    /// pre-economy 0.1.0 sidecar zeroing the budget every five minutes while a newer build was
+    /// crediting it. This cannot discipline a build that shipped before the check existed; it
+    /// stops this build from being the one that destroys data, which is the half still ours to
+    /// decide.
+    /// </remarks>
     public void Save(CompanionState state)
     {
         ArgumentNullException.ThrowIfNull(state);
         AppPaths.EnsureDirectory(SysIO.Path.GetDirectoryName(_path)!);
 
+        if (OnDiskVersion() > CompanionState.SchemaVersion)
+        {
+            RefusedToDowngrade = true;
+            return;
+        }
+
         var json = JsonSerializer.Serialize(state.Sanitized(), _typeInfo);
         var temporary = _path + ".tmp";
         SysIO.File.WriteAllText(temporary, json);
         SysIO.File.Move(temporary, _path, overwrite: true);
+    }
+
+    private int OnDiskVersion()
+    {
+        try
+        {
+            if (!SysIO.File.Exists(_path))
+            {
+                return 0;
+            }
+
+            return JsonSerializer.Deserialize(SysIO.File.ReadAllText(_path), _typeInfo)?.Version ?? 0;
+        }
+        catch (Exception error) when (error is JsonException or IOException)
+        {
+            // An unreadable file is not a newer one. Quarantine already handles corruption, and
+            // a read failure here must not become a reason to stop saving forever.
+            return 0;
+        }
     }
 
     private CompanionState Quarantine()

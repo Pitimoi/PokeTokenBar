@@ -3,10 +3,18 @@ import {
   formatTokens,
   maxRestartAttempts,
   mayStartHelper,
+  parseOfferIndex,
   restartDelayMs,
-  speciesLabel,
 } from './guards';
-import { GetInfo, GetUsage, ScanReport, UsageResponse, UsageTotals } from './protocol';
+import {
+  ChooseEgg,
+  FeedCompanion,
+  GetInfo,
+  GetUsage,
+  ScanReport,
+  UsageResponse,
+  UsageTotals,
+} from './protocol';
 import { CompanionViewProvider } from './companionView';
 import { Sidecar, SidecarError } from './sidecar';
 
@@ -19,6 +27,7 @@ let restartAttempts = 0;
 let restartTimer: NodeJS.Timeout | undefined;
 let stopped = false;
 let companionView: CompanionViewProvider;
+let lastCompanionOfferCount = 0;
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   output = vscode.window.createOutputChannel('PokeTokenBar', { log: true });
@@ -37,6 +46,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand('poketokenbar.showCompanion', showCompanion),
     vscode.commands.registerCommand('poketokenbar.refresh', () => void refresh()),
     vscode.commands.registerCommand('poketokenbar.showDiagnostics', showDiagnostics),
+    vscode.commands.registerCommand('poketokenbar.chooseEgg', (index: unknown) =>
+      void chooseEgg(index),
+    ),
+    vscode.commands.registerCommand('poketokenbar.feedCompanion', () => void feedCompanion()),
     { dispose: stop },
   );
 
@@ -122,6 +135,56 @@ async function refresh(): Promise<void> {
   }
 }
 
+/**
+ * Buys the egg the user clicked. The index is validated against the offer the host last saw
+ * before it is forwarded: this command is registered, so anything in the window can invoke it,
+ * not only the link the view renders.
+ */
+async function chooseEgg(index: unknown): Promise<void> {
+  const offerCount = lastCompanionOfferCount;
+  const chosen = parseOfferIndex(index, offerCount);
+
+  if (chosen === undefined) {
+    output.warn(`ignored a choose-egg request for ${String(index)}; the offer has ${offerCount}`);
+    return;
+  }
+
+  await spend(() => sidecar!.connection.sendRequest(ChooseEgg, chosen), `taking egg ${chosen}`);
+}
+
+async function feedCompanion(): Promise<void> {
+  await spend(() => sidecar!.connection.sendRequest(FeedCompanion), 'feeding the companion');
+}
+
+/**
+ * Runs a spend and folds the result into the view.
+ *
+ * The refusal is reported rather than treated as an error: a click that arrives just after the
+ * budget was spent in another window is an ordinary race, not a fault.
+ */
+async function spend(
+  request: () => Promise<UsageResponse['companion']>,
+  what: string,
+): Promise<void> {
+  if (!sidecar) {
+    output.warn(`cannot spend while the helper is down (${what})`);
+    return;
+  }
+
+  try {
+    const companion = await request();
+    lastCompanionOfferCount = companion.offerCount;
+    companionView.updateCompanion(companion);
+    output.info(
+      companion.refusal
+        ? `${what} was refused: ${companion.refusal}`
+        : `${what} left ${formatTokens(companion.budget)} banked`,
+    );
+  } catch (error) {
+    output.error(`${what} failed: ${String(error)}`);
+  }
+}
+
 function render(response: UsageResponse): void {
   lastScan = response.scan;
   const { today, week, month, scan } = response;
@@ -145,11 +208,16 @@ function render(response: UsageResponse): void {
   }
 
   statusItem.tooltip = tooltip;
+  lastCompanionOfferCount = response.companion.offerCount;
   companionView.update(response);
+
+  const { companion } = response;
   output.info(
-    `status bar shows "${statusItem.text}"; companion #${response.companion.speciesId} ` +
-      `stage ${response.companion.stageIndex + 1}/${response.companion.totalForms} ` +
-      `sprite ${response.companion.spriteFileName ?? "none"}`,
+    `status bar shows "${statusItem.text}"; ${formatTokens(companion.budget)} banked; ` +
+      (companion.hasCompanion
+        ? `companion #${companion.speciesId} stage ${companion.stageIndex + 1}/${companion.totalForms} ` +
+          `sprite ${companion.spriteFileName ?? 'none'}`
+        : `${companion.offerCount} egg(s) on offer`),
   );
 }
 

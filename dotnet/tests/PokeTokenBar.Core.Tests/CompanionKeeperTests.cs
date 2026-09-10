@@ -545,6 +545,61 @@ public sealed class CompanionStoreTests
     }
 
     [Fact]
+    public void StampsTheSchemaVersionItWrote()
+    {
+        using var directory = new TempStoreDirectory();
+        new CompanionStore(directory.File).Save(CompanionState.New(1));
+
+        Assert.Contains(
+            $"\"version\": {CompanionState.SchemaVersion}",
+            File.ReadAllText(directory.File),
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void DoesNotPersistComputedProperties()
+    {
+        // A get-only property is serialised but never read back, so it only misleads whoever
+        // opens the file — and invites a future reader to trust it.
+        using var directory = new TempStoreDirectory();
+        new CompanionStore(directory.File).Save(GameStates.WithCompanion());
+
+        Assert.DoesNotContain("hasCompanion", File.ReadAllText(directory.File), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void RefusesToOverwriteASaveFromANewerBuild()
+    {
+        // Every window on the machine shares this file and installs update independently, so
+        // an older build can meet a newer save. Rewriting it would drop whatever fields this
+        // build has never heard of.
+        using var directory = new TempStoreDirectory();
+        var newer = $$"""{"version":{{CompanionState.SchemaVersion + 1}},"speciesPath":[25],"stageIndex":0,"tokensAtStage":0,"budget":777,"rarity":"Common","seed":1,"watermarkDay":"","watermarkTokens":0,"graduated":[],"somethingNewWeCannotSee":42}""";
+        File.WriteAllText(directory.File, newer);
+        var store = new CompanionStore(directory.File);
+
+        store.Save(CompanionState.New(2));
+
+        Assert.True(store.RefusedToDowngrade);
+        Assert.Equal(newer, File.ReadAllText(directory.File));
+    }
+
+    [Fact]
+    public void SavesNormallyOverASaveFromAnOlderBuild()
+    {
+        using var directory = new TempStoreDirectory();
+        File.WriteAllText(
+            directory.File,
+            """{"speciesPath":[133,134],"stageIndex":0,"tokensAtStage":0,"rarity":"Uncommon","seed":77,"watermarkDay":"","watermarkTokens":0,"graduated":[]}""");
+        var store = new CompanionStore(directory.File);
+
+        store.Save(CompanionState.New(2) with { Budget = 999 });
+
+        Assert.False(store.RefusedToDowngrade);
+        Assert.Equal(999, new CompanionStore(directory.File).Load().Budget);
+    }
+
+    [Fact]
     public void LeavesNoTemporaryFileBehind()
     {
         using var directory = new TempStoreDirectory();
@@ -619,6 +674,41 @@ public sealed class SaveMigrationTests
 
         Assert.True(loaded.HasCompanion);
         Assert.Equal(133, loaded.ToCompanion().CurrentSpeciesId);
+    }
+
+    [Fact]
+    public void APrePokedexSaveIsBackfilledFromWhatItAlreadyProves()
+    {
+        // Showing an established player an empty Pokédex reads as lost progress. Stage 1 of
+        // [133, 134] means both forms were reached; 3 was carried to the end earlier.
+        using var directory = new TempMigrationDirectory();
+        File.WriteAllText(
+            directory.File,
+            """{"speciesPath":[133,134],"stageIndex":1,"tokensAtStage":0,"rarity":"Uncommon","seed":77,"watermarkDay":"","watermarkTokens":0,"graduated":[3],"pathResolved":true}""");
+
+        Assert.Equal([3, 133, 134], new CompanionStore(directory.File).Load().Pokedex);
+    }
+
+    [Fact]
+    public void BackfillingStopsAtTheFormActuallyReached()
+    {
+        // A later form is on the path but has not been grown into, so it is not owned.
+        using var directory = new TempMigrationDirectory();
+        File.WriteAllText(
+            directory.File,
+            """{"speciesPath":[1,2,3],"stageIndex":0,"tokensAtStage":0,"rarity":"Common","seed":1,"watermarkDay":"","watermarkTokens":0,"graduated":[]}""");
+
+        Assert.Equal([1], new CompanionStore(directory.File).Load().Pokedex);
+    }
+
+    [Fact]
+    public void AnEmptyPokedexIsLeftEmptyRatherThanBackfilled()
+    {
+        // A new game genuinely owns nothing. Only an absent list means "written before the
+        // Pokédex existed", which is why the field is nullable.
+        var state = GameStates.WithCompanion() with { Pokedex = [] };
+
+        Assert.Empty(state.Sanitized().Pokedex!);
     }
 
     [Fact]

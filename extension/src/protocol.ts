@@ -1,4 +1,4 @@
-import { RequestType0 } from 'vscode-jsonrpc/node';
+import { RequestType, RequestType0 } from 'vscode-jsonrpc/node';
 
 /**
  * Mirror of the sidecar's contract. Kept deliberately parameterless: the sidecar resolves its
@@ -41,8 +41,23 @@ export interface ScanReport {
 }
 
 export interface CompanionInfo {
-  /** True while still an egg; species and sprite are withheld so the host cannot spoil it. */
-  readonly isEgg: boolean;
+  /** Tokens earned and not yet spent. */
+  readonly budget: number;
+  /** What taking an egg costs. */
+  readonly hatchPrice: number;
+  /** What one press on a companion costs. */
+  readonly clickCost: number;
+  /**
+   * How many eggs are on offer. Nothing identifies them: the species behind each is derived
+   * from a seed only once chosen, so there is nothing here to spoil the choice with.
+   */
+  readonly offerCount: number;
+  /** False while there is only an offer to choose from. */
+  readonly hasCompanion: boolean;
+  readonly canHatch: boolean;
+  readonly canAdvance: boolean;
+  /** Why the last spend was refused; empty when accepted or when none was asked for. */
+  readonly refusal: string;
   readonly speciesId: number;
   /** Sanitised species name, or empty when unknown — fall back to the dex number. */
   readonly speciesName: string;
@@ -57,11 +72,13 @@ export interface CompanionInfo {
   readonly justEvolved: readonly number[];
   readonly justGraduated: number | null;
   readonly justHatched: number | null;
-  readonly graduatedCount: number;
+  /** Every species ever owned, in the order first seen — the Pokédex. */
+  readonly pokedex: readonly number[];
+  /** Lines carried all the way to their final form. */
   readonly graduated: readonly number[];
   /** Names for every species mentioned, keyed by dex id as a string over the wire. */
   readonly names: Readonly<Record<string, string>>;
-  /** Sprite filenames for the collection, keyed by dex id. Validate before joining. */
+  /** Sprite filenames for the Pokédex, keyed by dex id. Validate before joining. */
   readonly collectionSprites: Readonly<Record<string, string>>;
   /**
    * Cache-relative filename, never a URL and never a path. Validate it with
@@ -87,3 +104,15 @@ export interface SidecarInfoResponse {
 
 export const GetUsage = new RequestType0<UsageResponse, void>('GetUsageAsync');
 export const GetInfo = new RequestType0<SidecarInfoResponse, void>('GetInfoAsync');
+
+/**
+ * Spends the hatch price on one of the offered eggs.
+ *
+ * An index is the one kind of parameter this boundary accepts: it selects among choices the
+ * sidecar itself generated, so it can name nothing the sidecar did not already know about. The
+ * sidecar refuses an out-of-range index rather than clamping it.
+ */
+export const ChooseEgg = new RequestType<number, CompanionInfo, void>('ChooseEggAsync');
+
+/** Spends one press worth of budget on the active companion. */
+export const FeedCompanion = new RequestType0<CompanionInfo, void>('AdvanceCompanionAsync');

@@ -97,6 +97,47 @@ export function speciesLabel(id: number, name: string | undefined): string {
     .join('-');
 }
 
+/**
+ * The only commands the companion view may invoke by link.
+ *
+ * This exact list is handed to `enableCommandUris`, which VS Code matches against the command
+ * id of every clicked `command:` link — anything else is dropped before it reaches the command
+ * registry. Two consequences worth keeping in mind when editing it: adding an id here widens
+ * what a webview can trigger, and emitting a link whose id is *not* here produces a button that
+ * silently does nothing.
+ */
+export const webviewCommands = [
+  'poketokenbar.chooseEgg',
+  'poketokenbar.feedCompanion',
+] as const;
+
+/**
+ * Builds a `command:` URI for a webview link.
+ *
+ * Arguments travel as a JSON array in the query. The result still has to be HTML-escaped at the
+ * point of interpolation: this produces a URI, not an attribute value.
+ */
+export function commandUri(command: string, args: readonly unknown[] = []): string {
+  const query = args.length > 0 ? `?${encodeURIComponent(JSON.stringify(args))}` : '';
+  return `command:${command}${query}`;
+}
+
+/**
+ * Validates an offer index arriving as a command argument, or `undefined` to refuse it.
+ *
+ * A registered command is invokable by anything in the window — the Command Palette, another
+ * extension, a task — not only by the link that this view renders. The sidecar range-checks the
+ * index against the live offer regardless; this only keeps the host from forwarding a value that
+ * is not an index at all.
+ */
+export function parseOfferIndex(value: unknown, offerCount: number): number | undefined {
+  if (typeof value !== 'number' || !Number.isInteger(value)) {
+    return undefined;
+  }
+
+  return value >= 0 && value < offerCount ? value : undefined;
+}
+
 /** Compact token count for a status bar, which has very little room. */
 export function formatTokens(total: number): string {
   if (!Number.isFinite(total) || total < 0) {
