@@ -1,5 +1,6 @@
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
+using System.Text.Json;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
@@ -80,15 +81,16 @@ internal sealed class App : Application
             try
             {
                 StatusExport.Write(snapshot);
+                SpinnerVerbs.Update(snapshot);
             }
-            catch (IOException ex)
+            catch (Exception ex) when (ex is IOException or JsonException)
             {
                 var message = ex.Message;
                 Dispatcher.UIThread.Post(() =>
                 {
                     if (_window is not null)
                     {
-                        _window.Status = "Status export failed: " + message;
+                        _window.Status = "Export failed: " + message;
                     }
                 });
             }
