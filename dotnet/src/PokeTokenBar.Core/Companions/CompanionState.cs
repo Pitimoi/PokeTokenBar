@@ -115,6 +115,13 @@ public sealed record CompanionState
     /// <summary>Lines carried all the way to their final form.</summary>
     public required IReadOnlyList<int> Graduated { get; init; }
 
+    /// <summary>
+    /// The last species reached by any evolution — a mid-line step or a graduation alike. Zero
+    /// means nothing has evolved yet this save. Distinct from <see cref="Graduated"/>'s last
+    /// entry: this updates on every step, not only a finished line.
+    /// </summary>
+    public int LastReachedSpeciesId { get; init; }
+
     /// <summary>True when there is a companion to spend on, rather than an offer to choose from.</summary>
     /// <remarks>
     /// Ignored on the wire: a get-only property is serialised but never deserialised, so
@@ -149,6 +156,7 @@ public sealed record CompanionState
         WatermarkTokens = 0,
         Pokedex = [],
         Graduated = [],
+        LastReachedSpeciesId = 0,
     };
 
     /// <summary>Adopts a drawn line as the active companion and records it in the Pokédex.</summary>
@@ -231,6 +239,7 @@ public sealed record CompanionState
                 Spent = ledger.Spent,
                 Pokedex = [.. Keep(owned).Order()],
                 Graduated = Keep(Graduated),
+                LastReachedSpeciesId = KeepOne(LastReachedSpeciesId),
                 WatermarkDay = WatermarkDay.Length <= 10 ? WatermarkDay : string.Empty,
                 WatermarkTokens = Math.Max(0, WatermarkTokens),
             };
@@ -254,6 +263,7 @@ public sealed record CompanionState
             // order, which is real information rather than an artefact of insertion.
             Pokedex = [.. Keep(owned).Order()],
             Graduated = Keep(Graduated),
+            LastReachedSpeciesId = KeepOne(LastReachedSpeciesId),
         };
     }
 
@@ -302,4 +312,6 @@ public sealed record CompanionState
 
     private static int[] Keep(IReadOnlyList<int>? ids) =>
         (ids ?? []).Where(static id => id is > 0 and <= 1400).Take(2000).ToArray();
+
+    private static int KeepOne(int id) => id is > 0 and <= 1400 ? id : 0;
 }

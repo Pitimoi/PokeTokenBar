@@ -50,8 +50,10 @@ internal sealed record UsageSnapshot
 
     public required int GraduatedCount { get; init; }
 
-    /// <summary>Final form of the most recently completed line, if any.</summary>
-    public SpeciesInfo? LastGraduated { get; init; }
+    /// <summary>
+    /// The last species reached by any evolution — a mid-line step or a graduation alike.
+    /// </summary>
+    public SpeciesInfo? Previous { get; init; }
 
     /// <summary>Every species ever owned, in dex order; artwork only for the first few dozen.</summary>
     public required IReadOnlyList<SpeciesInfo> Pokedex { get; init; }
@@ -184,9 +186,9 @@ internal sealed class CompanionService
             mentioned.Add(companion.CurrentSpeciesId);
         }
 
-        if (graduated.Count > 0)
+        if (state.LastReachedSpeciesId > 0)
         {
-            mentioned.Add(graduated[^1]);
+            mentioned.Add(state.LastReachedSpeciesId);
         }
 
         var owned = (state.Pokedex ?? []).Order().ToArray();
@@ -198,9 +200,9 @@ internal sealed class CompanionService
         var current = state.HasCompanion
             ? await DescribeAsync(companion.CurrentSpeciesId, cancellationToken).ConfigureAwait(false)
             : null;
-        var last = graduated.Count == 0
+        var previous = state.LastReachedSpeciesId <= 0
             ? null
-            : await DescribeAsync(graduated[^1], cancellationToken).ConfigureAwait(false);
+            : await DescribeAsync(state.LastReachedSpeciesId, cancellationToken).ConfigureAwait(false);
 
         var pokedex = new List<SpeciesInfo>(owned.Length);
         foreach (var id in owned)
@@ -234,7 +236,7 @@ internal sealed class CompanionService
             HatchedSpeciesId = hatched,
             GraduatedSpeciesId = spend.GraduatedSpeciesId,
             GraduatedCount = graduated.Count,
-            LastGraduated = last,
+            Previous = previous,
             Pokedex = pokedex,
             ScannedAt = DateTimeOffset.Now,
         };

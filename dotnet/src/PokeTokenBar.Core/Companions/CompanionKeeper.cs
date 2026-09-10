@@ -154,6 +154,12 @@ public static class CompanionKeeper
             next = next.WithPokedexEntry(species);
         }
 
+        // Updated on every step forward, not only a finished line.
+        if (advance.Evolutions.Count > 0 || advance.Graduated)
+        {
+            next = next with { LastReachedSpeciesId = advance.Companion.CurrentSpeciesId };
+        }
+
         if (!advance.Graduated)
         {
             return new SpendResult
