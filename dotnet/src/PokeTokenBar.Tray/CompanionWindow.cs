@@ -194,12 +194,10 @@ internal sealed class CompanionWindow : Window
             CultureInfo.InvariantCulture,
             $"POKÉDEX {snapshot.Pokedex.Count} · COMPLETED {snapshot.GraduatedCount}");
 
-        // Forms of the line still being raised are shown in grey; everything else came from a
-        // completed line.
-        var inProgress = snapshot.Current is null
-            ? new HashSet<int>()
-            : snapshot.Companion.ReachedForms.ToHashSet();
-        UpdatePokedex(snapshot.Pokedex, inProgress);
+        // The one form still being raised is shown in grey; every earlier form in this same
+        // line, and every finished line, is locked in.
+        var pending = snapshot.Current is null ? null : snapshot.Companion.PendingSpeciesId;
+        UpdatePokedex(snapshot.Pokedex, pending);
 
         Status = EventLine(snapshot);
     }
@@ -233,14 +231,14 @@ internal sealed class CompanionWindow : Window
     }
 
     /// <summary>One cell per owned species: its sprite (or a blank) over its number, name on hover.</summary>
-    private void UpdatePokedex(IReadOnlyList<SpeciesInfo> pokedex, HashSet<int> inProgress)
+    private void UpdatePokedex(IReadOnlyList<SpeciesInfo> pokedex, int? pendingSpeciesId)
     {
         _pokedexScroller.IsVisible = pokedex.Count > 0 && !_pokedexCollapsed;
         _pokedexGrid.Children.Clear();
 
         foreach (var species in pokedex)
         {
-            var pending = inProgress.Contains(species.SpeciesId);
+            var pending = species.SpeciesId == pendingSpeciesId;
             var image = new Image { Width = 48, Height = 48, Stretch = Stretch.Uniform, Opacity = pending ? 0.75 : 1 };
             RenderOptions.SetBitmapInterpolationMode(image, BitmapInterpolationMode.None);
             if (species.SpritePath is not null)
