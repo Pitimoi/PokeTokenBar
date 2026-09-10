@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { escapeHtml, isSpriteFileName } from '../out/guards.js';
+import { escapeHtml, isSpriteFileName, speciesLabel } from '../out/guards.js';
 
 test('escapes every HTML-significant character', () => {
   assert.equal(escapeHtml('<img src=x onerror=alert(1)>'), '&lt;img src=x onerror=alert(1)&gt;');
@@ -55,4 +55,15 @@ test('rejects any sprite filename that could escape the cache directory', () => 
 test('rejects windows-style traversal', () => {
   const backslash = ['..', '..', 'windows', 'system32'].join('\\') + '\\cmd.exe';
   assert.equal(isSpriteFileName(backslash), false);
+});
+
+test('labels a species by name in title case', () => {
+  assert.equal(speciesLabel(7, 'squirtle'), 'Squirtle');
+  assert.equal(speciesLabel(122, 'mr-mime'), 'Mr-Mime');
+  assert.equal(speciesLabel(474, 'porygon-z'), 'Porygon-Z');
+});
+
+test('falls back to the dex number when the name is unknown', () => {
+  assert.equal(speciesLabel(216, ''), '#216');
+  assert.equal(speciesLabel(216, undefined), '#216');
 });

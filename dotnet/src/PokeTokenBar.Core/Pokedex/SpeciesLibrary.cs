@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Text.Json;
 using PokeTokenBar.Core.Companions;
 using PokeTokenBar.Core.Io;
+using PokeTokenBar.Core.Usage;
 using SysIO = System.IO;
 
 namespace PokeTokenBar.Core.Pokedex;
@@ -18,6 +19,7 @@ public sealed class SpeciesLibrary
 {
     private readonly PokeApiClient _api;
     private readonly string _directory;
+    private Dictionary<string, string>? _names;
 
     public SpeciesLibrary(PokeApiClient? api = null, string? directory = null)
     {
@@ -115,6 +117,59 @@ public sealed class SpeciesLibrary
     /// <summary>True when a usable index is already on disk, so a draw needs no network.</summary>
     public bool HasCachedIndex => SysIO.File.Exists(IndexPath);
 
+    /// <summary>
+    /// Display name for a species, or null when it has never been seen. Names accumulate as
+    /// species are encountered, so a mid-chain form or a graduated one can be named without a
+    /// lookup of its own.
+    /// </summary>
+    public string? NameFor(int speciesId)
+    {
+        var names = LoadNames();
+        return names.TryGetValue(speciesId.ToString(CultureInfo.InvariantCulture), out var name)
+            ? DisplayText.SanitizeIdentifier(name, 24)
+            : null;
+    }
+
+    private Dictionary<string, string> LoadNames()
+    {
+        if (_names is not null)
+        {
+            return _names;
+        }
+
+        var snapshot = ReadCache(NamesPath, PokedexJsonContext.Default.SpeciesNames);
+        _names = snapshot?.ById ?? [];
+        return _names;
+    }
+
+    private void RememberNames(IEnumerable<KeyValuePair<int, string>> learned)
+    {
+        var names = LoadNames();
+        var changed = false;
+
+        foreach (var (id, name) in learned)
+        {
+            if (id < 1 || name.Length == 0)
+            {
+                continue;
+            }
+
+            var key = id.ToString(CultureInfo.InvariantCulture);
+            if (!names.ContainsKey(key))
+            {
+                names[key] = name;
+                changed = true;
+            }
+        }
+
+        if (changed)
+        {
+            WriteCache(NamesPath, new SpeciesNames { ById = names }, PokedexJsonContext.Default.SpeciesNames);
+        }
+    }
+
+    private string NamesPath => SysIO.Path.Combine(_directory, "names.json");
+
     private string IndexPath => SysIO.Path.Combine(_directory, "base-index.json");
 
     private string PathsPath(int speciesId) =>
@@ -127,6 +182,7 @@ public sealed class SpeciesLibrary
         var cached = ReadCache(IndexPath, PokedexJsonContext.Default.SpeciesIndexSnapshot);
         if (cached is { Entries.Count: > 0 })
         {
+            RememberNames(cached.Entries.Select(e => new KeyValuePair<int, string>(e.Id, e.Name)));
             return cached.Entries;
         }
 
@@ -142,6 +198,7 @@ public sealed class SpeciesLibrary
                 PokedexJsonContext.Default.SpeciesIndexSnapshot);
         }
 
+        RememberNames(fetched.Select(e => new KeyValuePair<int, string>(e.Id, e.Name)));
         return fetched;
     }
 
@@ -160,8 +217,9 @@ public sealed class SpeciesLibrary
             return [];
         }
 
-        var paths = await _api.GetEvolutionPathsAsync(chainId.Value, cancellationToken).ConfigureAwait(false);
-        var usable = paths.Where(p => p.Length > 0 && p[0] == speciesId).ToArray();
+        var chain = await _api.GetEvolutionChainAsync(chainId.Value, cancellationToken).ConfigureAwait(false);
+        RememberNames(chain.Names);
+        var usable = chain.Paths.Where(p => p.Length > 0 && p[0] == speciesId).ToArray();
 
         if (usable.Length > 0)
         {

@@ -42,6 +42,8 @@ export interface ScanReport {
 
 export interface CompanionInfo {
   readonly speciesId: number;
+  /** Sanitised species name, or empty when unknown — fall back to the dex number. */
+  readonly speciesName: string;
   readonly stageIndex: number;
   readonly totalForms: number;
   /** Progress through the current form, 0 to 1. */
@@ -53,6 +55,9 @@ export interface CompanionInfo {
   readonly justEvolved: readonly number[];
   readonly justGraduated: number | null;
   readonly graduatedCount: number;
+  readonly graduated: readonly number[];
+  /** Names for every species mentioned, keyed by dex id as a string over the wire. */
+  readonly names: Readonly<Record<string, string>>;
   /**
    * Cache-relative filename, never a URL and never a path. Validate it with
    * `isSpriteFileName` before joining it to `spriteDirectory` — the sidecar should only ever

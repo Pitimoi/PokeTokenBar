@@ -10,5 +10,6 @@ namespace PokeTokenBar.Core.Pokedex;
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 [JsonSerializable(typeof(SpeciesIndexSnapshot))]
 [JsonSerializable(typeof(EvolutionPathsSnapshot))]
+[JsonSerializable(typeof(SpeciesNames))]
 [JsonSerializable(typeof(Dictionary<string, string>))]
 internal sealed partial class PokedexJsonContext : JsonSerializerContext;

@@ -5,6 +5,12 @@ public sealed record CompanionResponse
 {
     public required int SpeciesId { get; init; }
 
+    /// <summary>
+    /// Species name, sanitised and length-capped because it comes from an external API. Empty
+    /// when unknown, in which case the host falls back to the dex number.
+    /// </summary>
+    public required string SpeciesName { get; init; }
+
     public required int StageIndex { get; init; }
 
     public required int TotalForms { get; init; }
@@ -29,6 +35,12 @@ public sealed record CompanionResponse
     public int? JustGraduated { get; init; }
 
     public required int GraduatedCount { get; init; }
+
+    /// <summary>Species ids collected so far, oldest first.</summary>
+    public required IReadOnlyList<int> Graduated { get; init; }
+
+    /// <summary>Names for every species mentioned in this response, keyed by dex id.</summary>
+    public required IReadOnlyDictionary<int, string> Names { get; init; }
 
     /// <summary>
     /// Cache-relative sprite filename, or null when it could not be fetched. Never a URL and

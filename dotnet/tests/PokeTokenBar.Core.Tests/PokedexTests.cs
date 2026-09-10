@@ -86,7 +86,9 @@ public sealed class PokeApiClientTests
         ]}}
         """;
 
-        var paths = await new PokeApiClient(new HttpClient(new StubHandler(Json(body)))).GetEvolutionPathsAsync(67);
+        var chain = await new PokeApiClient(new HttpClient(new StubHandler(Json(body))))
+            .GetEvolutionChainAsync(67);
+        var paths = chain.Paths;
 
         Assert.Equal(2, paths.Count);
         Assert.Equal([133, 134], paths[0]);
@@ -104,7 +106,9 @@ public sealed class PokeApiClientTests
         ]}}
         """;
 
-        var paths = await new PokeApiClient(new HttpClient(new StubHandler(Json(body)))).GetEvolutionPathsAsync(2);
+        var chain = await new PokeApiClient(new HttpClient(new StubHandler(Json(body))))
+            .GetEvolutionChainAsync(2);
+        var paths = chain.Paths;
 
         Assert.Single(paths);
         Assert.Equal([4, 5, 6], paths[0]);
@@ -139,7 +143,7 @@ public sealed class PokeApiClientTests
         var client = new PokeApiClient(new HttpClient(new ThrowingHandler()));
 
         Assert.Empty(await client.GetBaseSpeciesAsync());
-        Assert.Empty(await client.GetEvolutionPathsAsync(1));
+        Assert.Empty((await client.GetEvolutionChainAsync(1)).Paths);
         Assert.Null(await client.GetChainIdAsync(1));
     }
 
@@ -184,7 +188,9 @@ public sealed class PokeApiClientTests
         ]}}
         """;
 
-        var paths = await new PokeApiClient(new HttpClient(new StubHandler(Json(body)))).GetEvolutionPathsAsync(110);
+        var chain = await new PokeApiClient(new HttpClient(new StubHandler(Json(body))))
+            .GetEvolutionChainAsync(110);
+        var paths = chain.Paths;
 
         Assert.Single(paths);
         Assert.Equal([216, 217], paths[0]);
@@ -197,7 +203,10 @@ public sealed class PokeApiClientTests
         {"chain":{"species":{"url":"https://pokeapi.co/api/v2/pokemon-species/906/"},"evolves_to":[]}}
         """;
 
-        Assert.Empty(await new PokeApiClient(new HttpClient(new StubHandler(Json(body)))).GetEvolutionPathsAsync(1));
+        var chain = await new PokeApiClient(new HttpClient(new StubHandler(Json(body))))
+            .GetEvolutionChainAsync(1);
+
+        Assert.Empty(chain.Paths);
     }
 
     [Fact]
@@ -211,7 +220,9 @@ public sealed class PokeApiClientTests
         ]}}
         """;
 
-        var paths = await new PokeApiClient(new HttpClient(new StubHandler(Json(body)))).GetEvolutionPathsAsync(67);
+        var chain = await new PokeApiClient(new HttpClient(new StubHandler(Json(body))))
+            .GetEvolutionChainAsync(67);
+        var paths = chain.Paths;
 
         Assert.Equal(2, paths.Count);
         Assert.Equal([133, 134], paths[0]);

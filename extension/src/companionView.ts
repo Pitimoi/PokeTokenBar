@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import * as vscode from 'vscode';
-import { escapeHtml, formatTokens, isSpriteFileName } from './guards';
+import { escapeHtml, formatTokens, isSpriteFileName, speciesLabel } from './guards';
 import { UsageResponse } from './protocol';
 
 /**
@@ -74,7 +74,8 @@ export class CompanionViewProvider implements vscode.WebviewViewProvider {
 
     const body = `
       <div class="pet">${sprite}</div>
-      <div class="name">#${companion.speciesId}</div>
+      <div class="name">${escapeHtml(speciesLabel(companion.speciesId, companion.speciesName))}</div>
+      <div class="meta">#${companion.speciesId}</div>
       <div class="meta">${escapeHtml(companion.rarity)} · stage ${escapeHtml(stage)}</div>
       <div class="bar"><div class="fill" style="width:${percent}%"></div></div>
       <div class="meta">${escapeHtml(formatTokens(companion.tokensAtStage))} /

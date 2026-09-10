@@ -79,6 +79,24 @@ export function isSpriteFileName(fileName: string | null | undefined): boolean {
   return typeof fileName === 'string' && /^[0-9]{1,4}-(sh)?[as]\.(png|gif)$/.test(fileName);
 }
 
+/**
+ * Display label for a species: its name in title case, or the dex number when unknown.
+ *
+ * The name arrives sanitised from the sidecar and is escaped again before rendering; this only
+ * shapes it for reading. Hyphens survive because several names genuinely contain them
+ * (mr-mime, porygon-z).
+ */
+export function speciesLabel(id: number, name: string | undefined): string {
+  if (!name) {
+    return `#${id}`;
+  }
+
+  return name
+    .split('-')
+    .map((part) => (part.length > 0 ? part[0]!.toUpperCase() + part.slice(1) : part))
+    .join('-');
+}
+
 /** Compact token count for a status bar, which has very little room. */
 export function formatTokens(total: number): string {
   if (!Number.isFinite(total) || total < 0) {

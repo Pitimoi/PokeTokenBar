@@ -1,5 +1,11 @@
 import * as vscode from 'vscode';
-import { formatTokens, maxRestartAttempts, mayStartHelper, restartDelayMs } from './guards';
+import {
+  formatTokens,
+  maxRestartAttempts,
+  mayStartHelper,
+  restartDelayMs,
+  speciesLabel,
+} from './guards';
 import { GetInfo, GetUsage, ScanReport, UsageResponse, UsageTotals } from './protocol';
 import { CompanionViewProvider } from './companionView';
 import { Sidecar, SidecarError } from './sidecar';

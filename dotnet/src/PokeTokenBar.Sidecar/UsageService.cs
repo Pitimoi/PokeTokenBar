@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Reflection;
 using PokeTokenBar.Core.Companions;
+using PokeTokenBar.Core.Io;
 using PokeTokenBar.Core.Pokedex;
 using PokeTokenBar.Core.Sprites;
 using PokeTokenBar.Core.Usage;
@@ -92,6 +93,11 @@ internal sealed class UsageService : IUsageService
         UsageTotals today,
         CancellationToken cancellationToken)
     {
+        // One gate around load, advance and save. Every window runs its own sidecar against
+        // this same file; without it, two refreshes that interleave both read the same day
+        // watermark and both apply the same token delta.
+        using var gate = FileGate.Acquire(_companions.FilePath);
+
         var loaded = _companions.Load();
 
         // A brand new companion is hatched from the built-in lines so that it always exists;
@@ -141,9 +147,24 @@ internal sealed class UsageService : IUsageService
                 .ConfigureAwait(false);
         }
 
+        // Names for every species the host might render: the current form, the line it is on,
+        // and the collection. Gathered once here so the host never has to ask again.
+        var mentioned = new HashSet<int>(companion.SpeciesPath) { companion.CurrentSpeciesId };
+        mentioned.UnionWith(update.State.Graduated);
+        var names = new Dictionary<int, string>();
+        foreach (var id in mentioned)
+        {
+            var name = _library.NameFor(id);
+            if (name is not null)
+            {
+                names[id] = name;
+            }
+        }
+
         return new CompanionResponse
         {
             SpeciesId = companion.CurrentSpeciesId,
+            SpeciesName = names.GetValueOrDefault(companion.CurrentSpeciesId, string.Empty),
             StageIndex = companion.SafeStageIndex,
             TotalForms = companion.TotalForms,
             StageProgress = companion.StageProgress,
@@ -154,6 +175,8 @@ internal sealed class UsageService : IUsageService
             JustEvolved = update.Evolutions,
             JustGraduated = update.GraduatedSpeciesId,
             GraduatedCount = update.State.Graduated.Count,
+            Graduated = update.State.Graduated,
+            Names = names,
             SpriteFileName = sprite.FileName,
             SpriteDirectory = _sprites.Directory,
         };

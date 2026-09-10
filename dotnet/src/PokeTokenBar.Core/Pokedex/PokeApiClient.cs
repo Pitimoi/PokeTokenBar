@@ -40,7 +40,7 @@ public sealed class PokeApiClient(HttpClient? client = null)
     {
         const string query =
             "{ pokemonspecies(where: {evolves_from_species_id: {_is_null: true}, id: {_lte: "
-            + "649}}, order_by: {id: asc}) { id capture_rate is_legendary is_mythical } }";
+            + "649}}, order_by: {id: asc}) { id name capture_rate is_legendary is_mythical } }";
 
         var payload = JsonSerializer.Serialize(new Dictionary<string, string> { ["query"] = query },
             PokedexJsonContext.Default.DictionaryStringString);
@@ -80,6 +80,7 @@ public sealed class PokeApiClient(HttpClient? client = null)
             results.Add(new BaseSpecies
             {
                 Id = speciesId,
+                Name = ReadString(entry, "name"),
                 CaptureRate = ReadInt(entry, "capture_rate", 255),
                 IsLegendary = ReadBool(entry, "is_legendary"),
                 IsMythical = ReadBool(entry, "is_mythical"),
@@ -93,13 +94,13 @@ public sealed class PokeApiClient(HttpClient? client = null)
     /// Every root-to-leaf path of the chain a species belongs to, as species ids. Branching
     /// chains yield more than one path.
     /// </summary>
-    public async ValueTask<IReadOnlyList<int[]>> GetEvolutionPathsAsync(
+    public async ValueTask<EvolutionChainResult> GetEvolutionChainAsync(
         int chainId,
         CancellationToken cancellationToken = default)
     {
         if (chainId < 1)
         {
-            return [];
+            return EvolutionChainResult.Empty;
         }
 
         var url = new Uri($"https://{RestHost}/api/v2/evolution-chain/{chainId}/");
@@ -108,18 +109,19 @@ public sealed class PokeApiClient(HttpClient? client = null)
         var json = await ReadJsonAsync(request, RestHost, cancellationToken).ConfigureAwait(false);
         if (json is null)
         {
-            return [];
+            return EvolutionChainResult.Empty;
         }
 
         using var document = json;
         if (!document.RootElement.TryGetProperty("chain", out var chain))
         {
-            return [];
+            return EvolutionChainResult.Empty;
         }
 
         var paths = new List<int[]>();
-        Walk(chain, [], paths);
-        return paths;
+        var names = new Dictionary<int, string>();
+        Walk(chain, [], paths, names);
+        return new EvolutionChainResult { Paths = paths, Names = names };
     }
 
     /// <summary>Chain id for a species, needed because a species does not name its own chain.</summary>
@@ -173,7 +175,11 @@ public sealed class PokeApiClient(HttpClient? client = null)
         return null;
     }
 
-    private static void Walk(JsonElement node, List<int> prefix, List<int[]> paths)
+    private static void Walk(
+        JsonElement node,
+        List<int> prefix,
+        List<int[]> paths,
+        Dictionary<int, string> names)
     {
         var id = node.TryGetProperty("species", out var species)
                  && species.TryGetProperty("url", out var url)
@@ -195,6 +201,15 @@ public sealed class PokeApiClient(HttpClient? client = null)
             return;
         }
 
+        if (node.TryGetProperty("species", out var speciesNode))
+        {
+            var name = ReadString(speciesNode, "name");
+            if (name.Length > 0)
+            {
+                names[id.Value] = name;
+            }
+        }
+
         var path = new List<int>(prefix) { id.Value };
 
         if (!node.TryGetProperty("evolves_to", out var next)
@@ -214,7 +229,7 @@ public sealed class PokeApiClient(HttpClient? client = null)
 
         foreach (var child in next.EnumerateArray())
         {
-            Walk(child, path, paths);
+            Walk(child, path, paths, names);
         }
     }
 
@@ -297,6 +312,11 @@ public sealed class PokeApiClient(HttpClient? client = null)
 
         return buffer.Length == 0 ? null : buffer.ToArray();
     }
+
+    private static string ReadString(JsonElement parent, string name) =>
+        parent.TryGetProperty(name, out var field) && field.ValueKind == JsonValueKind.String
+            ? field.GetString() ?? string.Empty
+            : string.Empty;
 
     private static int ReadInt(JsonElement parent, string name, int fallback) =>
         parent.TryGetProperty(name, out var field)
