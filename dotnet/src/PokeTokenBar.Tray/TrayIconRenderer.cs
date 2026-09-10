@@ -22,6 +22,15 @@ internal static class TrayIconRenderer
         return new WindowIcon(icon);
     }
 
+    /// <summary>Writes the cropped, square icon as a PNG for tools that render images themselves.</summary>
+    public static void SaveIcon(string spritePath, string destination)
+    {
+        using var stream = File.OpenRead(spritePath);
+        using var source = WriteableBitmap.Decode(stream);
+        using var icon = CropAndScale(source);
+        icon.Save(destination);
+    }
+
     /// <summary>A pokéball, for when no sprite is on disk yet.</summary>
     public static WindowIcon Placeholder()
     {

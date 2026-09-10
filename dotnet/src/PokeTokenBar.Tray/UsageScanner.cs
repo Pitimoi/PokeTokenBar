@@ -1,8 +1,13 @@
+using System.Globalization;
 using PokeTokenBar.Core.Companions;
+using PokeTokenBar.Core.Io;
 using PokeTokenBar.Core.Sprites;
 using PokeTokenBar.Core.Usage;
 
 namespace PokeTokenBar.Tray;
+
+/// <summary>A species with everything a renderer might want for it, each part optional.</summary>
+internal sealed record SpeciesInfo(int SpeciesId, string? Name, string? SpritePath, string? IconPath, string? Color);
 
 internal sealed record UsageSnapshot
 {
@@ -14,14 +19,25 @@ internal sealed record UsageSnapshot
 
     public required Companion Companion { get; init; }
 
+    public string? Name { get; init; }
+
+    /// <summary>Absolute path of the current form's static sprite, or null when unavailable.</summary>
+    public string? SpritePath { get; init; }
+
+    /// <summary>Cropped square PNG of the current form, or null when unavailable.</summary>
+    public string? IconPath { get; init; }
+
+    /// <summary>Dominant sprite colour as <c>#RRGGBB</c>, or null without a sprite.</summary>
+    public string? Color { get; init; }
+
     public required IReadOnlyList<int> Evolutions { get; init; }
 
     public int? GraduatedSpeciesId { get; init; }
 
     public required int GraduatedCount { get; init; }
 
-    /// <summary>Absolute path of the current form's static sprite, or null when unavailable.</summary>
-    public string? SpritePath { get; init; }
+    /// <summary>Final form of the most recently completed line, if any.</summary>
+    public SpeciesInfo? LastGraduated { get; init; }
 
     public required DateTimeOffset ScannedAt { get; init; }
 }
@@ -34,6 +50,7 @@ internal sealed class UsageScanner
 {
     private readonly CompanionStore _companions = new();
     private readonly SpriteCache _sprites = new();
+    private readonly SpeciesNames _names = new();
 
     public async ValueTask<UsageSnapshot> ScanAsync(CancellationToken cancellationToken)
     {
@@ -63,9 +80,11 @@ internal sealed class UsageScanner
         _companions.Save(update.State);
         var companion = update.State.ToCompanion();
 
-        var sprite = await _sprites
-            .GetAsync(new SpriteRequest { SpeciesId = companion.CurrentSpeciesId }, cancellationToken)
-            .ConfigureAwait(false);
+        var current = await DescribeAsync(companion.CurrentSpeciesId, cancellationToken).ConfigureAwait(false);
+        var graduated = update.State.Graduated;
+        var last = graduated.Count == 0
+            ? null
+            : await DescribeAsync(graduated[^1], cancellationToken).ConfigureAwait(false);
 
         return new UsageSnapshot
         {
@@ -73,11 +92,53 @@ internal sealed class UsageScanner
             Week = UsageAggregator.ForRange(deduped, LocalDay.For(UsagePeriods.StartOfWeek(now)), today),
             Month = UsageAggregator.ForRange(deduped, LocalDay.For(UsagePeriods.StartOfMonth(now)), today),
             Companion = companion,
+            Name = current.Name,
+            SpritePath = current.SpritePath,
+            IconPath = current.IconPath,
+            Color = current.Color,
             Evolutions = update.Evolutions,
             GraduatedSpeciesId = update.GraduatedSpeciesId,
-            GraduatedCount = update.State.Graduated.Count,
-            SpritePath = sprite.FileName is null ? null : Path.Combine(_sprites.Directory, sprite.FileName),
+            GraduatedCount = graduated.Count,
+            LastGraduated = last,
             ScannedAt = now,
         };
+    }
+
+    private async ValueTask<SpeciesInfo> DescribeAsync(int speciesId, CancellationToken cancellationToken)
+    {
+        var sprite = await _sprites
+            .GetAsync(new SpriteRequest { SpeciesId = speciesId }, cancellationToken)
+            .ConfigureAwait(false);
+        var path = sprite.FileName is null ? null : Path.Combine(_sprites.Directory, sprite.FileName);
+        var name = await _names.GetAsync(speciesId, cancellationToken).ConfigureAwait(false);
+
+        string? color = null;
+        string? icon = null;
+        if (path is not null)
+        {
+            try
+            {
+                color = SpriteColor.Dominant(path);
+                icon = EnsureIcon(speciesId, path);
+            }
+            catch (Exception ex) when (ex is ArgumentException or IOException)
+            {
+                // Unreadable sprite: the dot just goes uncoloured and there is no icon.
+            }
+        }
+
+        return new SpeciesInfo(speciesId, name, path, icon, color);
+    }
+
+    private static string EnsureIcon(int speciesId, string spritePath)
+    {
+        var directory = AppPaths.EnsureDirectory(Path.Combine(AppPaths.DataRoot, "icons"));
+        var icon = Path.Combine(directory, speciesId.ToString(CultureInfo.InvariantCulture) + ".png");
+        if (!File.Exists(icon))
+        {
+            TrayIconRenderer.SaveIcon(spritePath, icon);
+        }
+
+        return icon;
     }
 }
