@@ -301,6 +301,29 @@ public sealed class AdvanceTests
     }
 
     [Fact]
+    public void AMidLineEvolutionUpdatesLastReachedEvenThoughTheLineHasNotGraduated()
+    {
+        var state = GameStates.WithCompanion() with
+        {
+            TokensAtStage = PokemonBalance.PhaseThreshold(Rarity.Common, 3, 0) - 1,
+        };
+
+        var spend = CompanionKeeper.Advance(state);
+
+        Assert.Equal(2, spend.State.LastReachedSpeciesId);
+        Assert.Empty(spend.State.Graduated);
+    }
+
+    [Fact]
+    public void APressThatDoesNotEvolveLeavesLastReachedUnchanged()
+    {
+        var spend = CompanionKeeper.Advance(GameStates.WithCompanion(100_000_000));
+
+        Assert.Empty(spend.Evolutions);
+        Assert.Equal(0, spend.State.LastReachedSpeciesId);
+    }
+
+    [Fact]
     public void ThePokedexIsHeldInDexOrderNotArrivalOrder()
     {
         // A Pokédex is read by number. Eevee raised before Bulbasaur must still list second.
@@ -351,6 +374,7 @@ public sealed class AdvanceTests
         Assert.Contains(3, spend.State.Graduated);
         Assert.False(spend.State.HasCompanion);
         Assert.Equal(CompanionEconomy.OfferSize, spend.State.OfferSeeds!.Count);
+        Assert.Equal(3, spend.State.LastReachedSpeciesId);
     }
 
     [Fact]
@@ -407,6 +431,25 @@ public sealed class CompanionStateSanitizerTests
         Assert.Equal([1, 3], repaired.SpeciesPath);
     }
 
+    [Theory]
+    [InlineData(-5)]
+    [InlineData(0)]
+    [InlineData(99_999)]
+    public void DropsAnImplausibleLastReachedSpeciesId(int implausible)
+    {
+        var repaired = (Active() with { LastReachedSpeciesId = implausible }).Sanitized();
+
+        Assert.Equal(0, repaired.LastReachedSpeciesId);
+    }
+
+    [Fact]
+    public void KeepsAPlausibleLastReachedSpeciesId()
+    {
+        var repaired = (Active() with { LastReachedSpeciesId = 2 }).Sanitized();
+
+        Assert.Equal(2, repaired.LastReachedSpeciesId);
+    }
+
     [Fact]
     public void StartsOverWhenThereIsNeitherACompanionNorAnOffer()
     {
@@ -429,6 +472,7 @@ public sealed class CompanionStateSanitizerTests
             Earned = 40_000_000,
             Pokedex = [4, 5],
             Graduated = [6],
+            LastReachedSpeciesId = 6,
         };
 
         var repaired = broken.Sanitized();
@@ -436,6 +480,7 @@ public sealed class CompanionStateSanitizerTests
         Assert.Equal(40_000_000, repaired.Available);
         Assert.Equal([4, 5], repaired.Pokedex);
         Assert.Equal([6], repaired.Graduated);
+        Assert.Equal(6, repaired.LastReachedSpeciesId);
     }
 
     [Fact]
