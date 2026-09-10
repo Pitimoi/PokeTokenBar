@@ -142,6 +142,79 @@ public sealed class SpriteSourceTests
     }
 }
 
+public sealed class BerrySourceTests
+{
+    [Fact]
+    public void BuildsBerryUrlsOnThePinnedHost()
+    {
+        var url = BerrySource.UrlFor(new BerryRequest { Index = 0 });
+
+        Assert.NotNull(url);
+        Assert.Equal("https", url!.Scheme);
+        Assert.Equal(SpriteSource.Host, url.Host);
+        Assert.EndsWith("-berry.png", url.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void EveryIndexInRangeProducesAUrlAndFileName()
+    {
+        for (var index = 0; index < BerrySource.Count; index++)
+        {
+            var request = new BerryRequest { Index = index };
+            Assert.NotNull(BerrySource.UrlFor(request));
+            Assert.NotNull(BerrySource.FileNameFor(request));
+        }
+    }
+
+    [Theory]
+    [InlineData(-1)]
+    [InlineData(int.MinValue)]
+    [InlineData(int.MaxValue)]
+    public void RejectsIndexesOutOfRange(int index)
+    {
+        var request = new BerryRequest { Index = index };
+
+        Assert.Null(BerrySource.UrlFor(request));
+        Assert.Null(BerrySource.FileNameFor(request));
+    }
+
+    [Fact]
+    public void RejectsIndexAtCount()
+    {
+        var request = new BerryRequest { Index = BerrySource.Count };
+
+        Assert.Null(BerrySource.UrlFor(request));
+        Assert.Null(BerrySource.FileNameFor(request));
+    }
+
+    [Fact]
+    public void EveryGeneratedFileNameIsAcceptedByTheValidator()
+    {
+        for (var index = 0; index < BerrySource.Count; index++)
+        {
+            var name = BerrySource.FileNameFor(new BerryRequest { Index = index });
+            Assert.True(BerrySource.IsCacheFileName(name), $"validator rejected {name}");
+        }
+    }
+
+    [Theory]
+    [InlineData("../../../etc/passwd")]
+    [InlineData("..\\..\\windows\\system32\\cmd.exe")]
+    [InlineData("berry-0.png/../../evil")]
+    [InlineData("/etc/passwd")]
+    [InlineData("berry-0.exe")]
+    [InlineData("berry-0.png.exe")]
+    [InlineData("berry-abc.png")]
+    [InlineData("berry-.png")]
+    [InlineData("0.png")]
+    [InlineData("")]
+    [InlineData(null)]
+    public void ValidatorRejectsAnythingItCouldNotHaveProduced(string? fileName)
+    {
+        Assert.False(BerrySource.IsCacheFileName(fileName));
+    }
+}
+
 public sealed class SpriteCacheTests
 {
     private static readonly byte[] PngBytes = [0x89, (byte)'P', (byte)'N', (byte)'G', 1, 2, 3, 4];
@@ -256,6 +329,48 @@ public sealed class SpriteCacheTests
         await cache.GetAsync(new SpriteRequest { SpeciesId = 99_999 });
 
         Assert.Equal(0, handler.Calls);
+    }
+
+    [Fact]
+    public async Task DownloadsThenServesABerryFromDisk()
+    {
+        using var directory = new TempDirectory();
+        var handler = new StubHandler(Image(PngBytes));
+        var cache = new SpriteCache(new HttpClient(handler), directory.Path);
+
+        var first = await cache.GetBerryAsync(new BerryRequest { Index = 7 });
+        var second = await cache.GetBerryAsync(new BerryRequest { Index = 7 });
+
+        Assert.Equal("berry-7.png", first.FileName);
+        Assert.False(first.FromCache);
+        Assert.True(second.FromCache);
+        Assert.Equal(1, handler.Calls);
+        Assert.True(File.Exists(Path.Combine(directory.Path, "berry-7.png")));
+    }
+
+    [Fact]
+    public async Task NeverRequestsAnOutOfRangeBerry()
+    {
+        using var directory = new TempDirectory();
+        var handler = new StubHandler(Image(PngBytes));
+        var cache = new SpriteCache(new HttpClient(handler), directory.Path);
+
+        var result = await cache.GetBerryAsync(new BerryRequest { Index = BerrySource.Count });
+
+        Assert.Equal(0, handler.Calls);
+        Assert.Equal("berry index out of range", result.Failure);
+    }
+
+    [Fact]
+    public async Task DegradesRatherThanThrowingForABerryWhenOffline()
+    {
+        using var directory = new TempDirectory();
+        var cache = new SpriteCache(new HttpClient(new ThrowingHandler()), directory.Path);
+
+        var result = await cache.GetBerryAsync(new BerryRequest { Index = 0 });
+
+        Assert.Null(result.FileName);
+        Assert.Equal("network unavailable", result.Failure);
     }
 
     private static HttpResponseMessage Image(byte[] bytes)

@@ -45,6 +45,9 @@ internal sealed record StatusBudget
     public required bool CanHatch { get; init; }
 
     public required bool CanAdvance { get; init; }
+
+    /// <summary>A randomly chosen held-berry sprite, present only while <see cref="CanAdvance"/>.</summary>
+    public string? FeedBerry { get; init; }
 }
 
 internal sealed record StatusSpecies
@@ -131,6 +134,7 @@ internal static class StatusExport
                 OfferCount = snapshot.OfferCount,
                 CanHatch = snapshot.CanHatch,
                 CanAdvance = snapshot.CanAdvance,
+                FeedBerry = snapshot.FeedBerryPath,
             },
             LastGraduated = snapshot.LastGraduated is { } last
                 ? new StatusSpecies { SpeciesId = last.SpeciesId, Name = last.Name, Color = last.Color, Sprite = last.SpritePath, Icon = last.IconPath }
