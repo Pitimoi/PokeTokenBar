@@ -22,6 +22,10 @@ internal sealed class CompanionWindow : Window
     private const int SpriteBox = 160;
     private const int EdgeMargin = 12;
 
+    /// <summary>Popup width in DIPs; the OS window's physical footprint is this times the target
+    /// screen's scaling (see <see cref="Place"/>).</summary>
+    private const double TargetWidthDip = 320;
+
     /// <summary>
     /// Clicking the tray icon while the popup is open first deactivates the window, which hides
     /// it, and then delivers the click, which would reopen it. A hide this recent means the click
@@ -72,7 +76,7 @@ internal sealed class CompanionWindow : Window
     public CompanionWindow()
     {
         Title = "PokeTokenBar";
-        Width = 320;
+        Width = TargetWidthDip;
         SizeToContent = SizeToContent.Height;
         CanResize = false;
         SystemDecorations = SystemDecorations.None;
@@ -374,9 +378,9 @@ internal sealed class CompanionWindow : Window
         }
 
         var area = screen.WorkingArea;
-        var width = (int)(Width * screen.Scaling);
+        var physicalWidth = (int)(Width * screen.Scaling);
         var margin = (int)(EdgeMargin * screen.Scaling);
-        var x = area.Right - width - margin;
+        var x = area.Right - physicalWidth - margin;
 
         if (!OperatingSystem.IsWindows())
         {
