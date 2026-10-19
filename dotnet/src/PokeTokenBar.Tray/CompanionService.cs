@@ -139,7 +139,7 @@ internal sealed class CompanionService
         if (spend.Accepted)
         {
             // The species is drawn here, not in the keeper: the draw needs the network.
-            var line = await _library.DrawAsync(spend.ChosenSeed!.Value, cancellationToken).ConfigureAwait(false);
+            var line = await _library.DrawAsync(spend.ChosenSeed!.Value, spend.State.Graduated, cancellationToken).ConfigureAwait(false);
             var state = spend.State.WithLine(line);
             _companions.Save(state);
             spend = spend with { State = state };
@@ -173,7 +173,7 @@ internal sealed class CompanionService
         }
 
         var resolved = await _library
-            .ResolveAsync(state.SpeciesPath[0], state.Rarity, state.Seed, cancellationToken)
+            .ResolveAsync(state.SpeciesPath[0], state.Rarity, state.Seed, state.Graduated, cancellationToken)
             .ConfigureAwait(false);
         return resolved is null ? state : state.WithResolvedPath(resolved);
     }
