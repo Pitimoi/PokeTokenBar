@@ -1,5 +1,5 @@
 #!/bin/bash
-# previous.sh — the last species reached by any evolution, mid-line step or graduation alike, as
+# previous.sh — what the companion evolved from, or the line's final form on a graduation, as
 # one Claude Code status-line segment:
 #   <icon> #<species> <name>
 # Prints nothing until anything has evolved, or when the tray app has never written its status.

@@ -310,7 +310,7 @@ public sealed class AdvanceTests
 
         var spend = CompanionKeeper.Advance(state);
 
-        Assert.Equal(2, spend.State.LastReachedSpeciesId);
+        Assert.Equal(1, spend.State.LastReachedSpeciesId);
         Assert.Empty(spend.State.Graduated);
     }
 

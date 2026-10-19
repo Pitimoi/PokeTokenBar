@@ -50,9 +50,7 @@ internal sealed record UsageSnapshot
 
     public required int GraduatedCount { get; init; }
 
-    /// <summary>
-    /// The last species reached by any evolution — a mid-line step or a graduation alike.
-    /// </summary>
+    /// <summary>What the companion evolved from, or the line's final form on a graduation.</summary>
     public SpeciesInfo? Previous { get; init; }
 
     /// <summary>Every species ever owned, in dex order; artwork only for the first few dozen.</summary>

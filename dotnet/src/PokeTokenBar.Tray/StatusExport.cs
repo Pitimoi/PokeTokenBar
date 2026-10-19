@@ -15,7 +15,7 @@ internal sealed record StatusDocument
 
     public required StatusBudget Budget { get; init; }
 
-    /// <summary>The last species reached by any evolution — a mid-line step or a graduation alike.</summary>
+    /// <summary>What the companion evolved from, or the line's final form on a graduation.</summary>
     public StatusSpecies? Previous { get; init; }
 
     public required int GraduatedCount { get; init; }

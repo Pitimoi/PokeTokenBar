@@ -127,9 +127,9 @@ public sealed record CompanionState
     public required IReadOnlyList<int> Graduated { get; init; }
 
     /// <summary>
-    /// The last species reached by any evolution — a mid-line step or a graduation alike. Zero
-    /// means nothing has evolved yet this save. Distinct from <see cref="Graduated"/>'s last
-    /// entry: this updates on every step, not only a finished line.
+    /// What the companion was before its last evolution step, or the line's final form if that
+    /// step was a graduation (nothing is "current" once a line retires). Zero means nothing has
+    /// evolved yet this save. Updates on every step, not only a finished line.
     /// </summary>
     public int LastReachedSpeciesId { get; init; }
 

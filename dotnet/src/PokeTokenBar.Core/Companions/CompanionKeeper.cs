@@ -137,7 +137,8 @@ public static class CompanionKeeper
             return SpendResult.Refuse(current, SpendRefusal.NotEnoughBudget);
         }
 
-        var advance = CompanionProgression.Apply(current.ToCompanion(), CompanionEconomy.ClickCost);
+        var before = current.ToCompanion();
+        var advance = CompanionProgression.Apply(before, CompanionEconomy.ClickCost);
 
         var next = current with
         {
@@ -154,10 +155,15 @@ public static class CompanionKeeper
             next = next.WithPokedexEntry(species);
         }
 
-        // Updated on every step forward, not only a finished line.
+        // On a mid-line step the companion is still Current, so Previous must be what it left
+        // behind, not what it just became. On a graduation Current goes back to null (the line
+        // retires), so Previous is the form that just finished.
         if (advance.Evolutions.Count > 0 || advance.Graduated)
         {
-            next = next with { LastReachedSpeciesId = advance.Companion.CurrentSpeciesId };
+            next = next with
+            {
+                LastReachedSpeciesId = advance.Graduated ? advance.Companion.CurrentSpeciesId : before.CurrentSpeciesId,
+            };
         }
 
         if (!advance.Graduated)
