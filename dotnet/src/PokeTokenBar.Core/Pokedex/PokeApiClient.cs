@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Net;
 using System.Text;
 using System.Text.Json;
@@ -88,6 +89,88 @@ public sealed class PokeApiClient(HttpClient? client = null)
         }
 
         return results;
+    }
+
+    /// <summary>
+    /// English names of the moves a species learns by levelling up, in any game, sorted and
+    /// without duplicates. One request; empty when unavailable.
+    /// </summary>
+    /// <remarks>
+    /// Queried by pokemon id, which equals the species id for every default form in range.
+    /// </remarks>
+    public async ValueTask<IReadOnlyList<string>> GetLevelUpMovesAsync(
+        int speciesId,
+        CancellationToken cancellationToken = default)
+    {
+        if (speciesId is < 1 or > MaxSpeciesId)
+        {
+            return [];
+        }
+
+        var query =
+            "{ pokemonmove(where: {pokemon_id: {_eq: " + speciesId.ToString(CultureInfo.InvariantCulture)
+            + "}, movelearnmethod: {name: {_eq: \"level-up\"}}}, distinct_on: move_id) "
+            + "{ move { movenames(where: {language_id: {_eq: 9}}) { name } } } }";
+
+        var payload = JsonSerializer.Serialize(new Dictionary<string, string> { ["query"] = query },
+            PokedexJsonContext.Default.DictionaryStringString);
+
+        using var request = new HttpRequestMessage(HttpMethod.Post, GraphQlEndpoint)
+        {
+            Content = new StringContent(payload, Encoding.UTF8, "application/json"),
+        };
+
+        var json = await ReadJsonAsync(request, GraphQlHost, cancellationToken).ConfigureAwait(false);
+        if (json is null)
+        {
+            return [];
+        }
+
+        using var document = json;
+        if (!document.RootElement.TryGetProperty("data", out var data)
+            || !data.TryGetProperty("pokemonmove", out var rows)
+            || rows.ValueKind != JsonValueKind.Array)
+        {
+            return [];
+        }
+
+        var names = new SortedSet<string>(StringComparer.Ordinal);
+        foreach (var row in rows.EnumerateArray())
+        {
+            if (row.TryGetProperty("move", out var move)
+                && move.TryGetProperty("movenames", out var moveNames)
+                && moveNames.ValueKind == JsonValueKind.Array
+                && moveNames.GetArrayLength() > 0
+                && MoveName(ReadString(moveNames[0], "name")) is { } name)
+            {
+                names.Add(name);
+            }
+        }
+
+        return [.. names];
+    }
+
+    /// <summary>
+    /// The name when it looks like a move name, otherwise null. It ends up in a terminal, so
+    /// anything outside letters, digits, spaces, hyphens and apostrophes is refused outright.
+    /// </summary>
+    internal static string? MoveName(string value)
+    {
+        var name = value.Trim().Replace('’', '\'');
+        if (name.Length is 0 or > 24)
+        {
+            return null;
+        }
+
+        foreach (var c in name)
+        {
+            if (!char.IsAsciiLetterOrDigit(c) && c is not (' ' or '-' or '\''))
+            {
+                return null;
+            }
+        }
+
+        return name;
     }
 
     /// <summary>

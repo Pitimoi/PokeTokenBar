@@ -53,3 +53,11 @@ public sealed record SpeciesNames
 {
     public required Dictionary<string, string> ById { get; init; }
 }
+
+/// <summary>Cached level-up move names for one species.</summary>
+public sealed record LevelUpMoves
+{
+    public required int SpeciesId { get; init; }
+
+    public required IReadOnlyList<string> Names { get; init; }
+}

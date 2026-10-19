@@ -11,5 +11,6 @@ namespace PokeTokenBar.Core.Pokedex;
 [JsonSerializable(typeof(SpeciesIndexSnapshot))]
 [JsonSerializable(typeof(EvolutionPathsSnapshot))]
 [JsonSerializable(typeof(SpeciesNames))]
+[JsonSerializable(typeof(LevelUpMoves))]
 [JsonSerializable(typeof(Dictionary<string, string>))]
 internal sealed partial class PokedexJsonContext : JsonSerializerContext;

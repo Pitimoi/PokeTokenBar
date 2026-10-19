@@ -21,6 +21,9 @@ internal sealed record UsageSnapshot
     /// <summary>The active companion, or null while eggs are on offer.</summary>
     public SpeciesInfo? Current { get; init; }
 
+    /// <summary>Level-up moves of <see cref="Current"/>; empty when unknown or when there is none.</summary>
+    public IReadOnlyList<string> CurrentMoves { get; init; } = [];
+
     /// <summary>Line position and progress; meaningful only when <see cref="Current"/> is set.</summary>
     public required Companion Companion { get; init; }
 
@@ -204,6 +207,9 @@ internal sealed class CompanionService
         var current = state.HasCompanion
             ? await DescribeAsync(companion.CurrentSpeciesId, cancellationToken).ConfigureAwait(false)
             : null;
+        var moves = state.HasCompanion
+            ? await _library.LevelUpMovesAsync(companion.CurrentSpeciesId, cancellationToken).ConfigureAwait(false)
+            : [];
         var previous = state.LastReachedSpeciesId <= 0
             ? null
             : await DescribeAsync(state.LastReachedSpeciesId, cancellationToken).ConfigureAwait(false);
@@ -230,6 +236,7 @@ internal sealed class CompanionService
             Week = _week ?? UsageTotals.Empty(day, day),
             Month = _month ?? UsageTotals.Empty(day, day),
             Current = current,
+            CurrentMoves = moves,
             Companion = companion,
             Available = state.Available,
             Earned = state.Earned,

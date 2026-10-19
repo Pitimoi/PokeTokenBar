@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using PokeTokenBar.Core.Companions;
 using PokeTokenBar.Core.Io;
 
 namespace PokeTokenBar.Tray;
@@ -21,18 +22,6 @@ internal static class SpinnerVerbs
     /// (<c>prefersReducedMotion</c> in Claude Code avoids it).
     /// </summary>
     private const int IconImageId = 200;
-
-    /// <summary>While a companion is being raised towards its next evolution.</summary>
-    private static readonly string[] RaisingTemplates =
-    [
-        "{icon} getting fed",
-        "Training {icon}",
-        "Playing with {icon}",
-        "Petting {icon}",
-        "{icon} gaining experience",
-        "{icon} growing up",
-        "Cheering {icon} on",
-    ];
 
     /// <summary>While eggs are on offer and nothing has hatched yet.</summary>
     private static readonly string[] HatchingTemplates =
@@ -56,13 +45,13 @@ internal static class SpinnerVerbs
     /// <summary>Returns true when the file was rewritten.</summary>
     public static bool Update(UsageSnapshot snapshot)
     {
-        string[] verbs;
+        IReadOnlyList<string> verbs;
         if (snapshot.Current is { } current)
         {
-            var icon = current.IconPath is null
-                ? "#" + current.SpeciesId.ToString(CultureInfo.InvariantCulture)
-                : Placeholder(IconImageId);
-            verbs = RaisingTemplates.Select(template => template.Replace("{icon}", icon, StringComparison.Ordinal)).ToArray();
+            var pokemon = current.IconPath is not null
+                ? Placeholder(IconImageId)
+                : current.Name ?? "#" + current.SpeciesId.ToString(CultureInfo.InvariantCulture);
+            verbs = BattleLines.For(current.SpeciesId, pokemon, snapshot.CurrentMoves);
         }
         else
         {

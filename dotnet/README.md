@@ -298,7 +298,7 @@ Everything the app writes lives in one folder — `~/.local/share/PokeTokenBar` 
 | File | Purpose |
 |---|---|
 | `companion.json` | The save: budget ledger, eggs on offer or active companion, Pokédex, completed lines (shared with the sidecar). |
-| `pokedex/` | Cached species index, evolution chains and names (maintained by `Core`). |
+| `pokedex/` | Cached species index, evolution chains, names and level-up moves (maintained by `Core`). |
 | `sprites/`, `icons/` | Cached sprites, and 64×64 crops of them for tools that render images. |
 | `status.json` | For other tools: current companion (id, name, stage, progress, dominant colour, sprite and icon paths) or `null` while eggs are on offer, the budget (available, earned, spent, prices, eggs on offer), last completed line, the Pokédex (ids, names, sprite paths), today's usage. Rewritten on every refresh, atomically. |
 | `claude-settings.json` | A Claude Code settings fragment carrying `spinnerVerbs` about the companion. |
@@ -343,8 +343,11 @@ right-aligned segment needs that margin or it is truncated with `…`.
 #### Spinner verbs
 
 The app keeps `claude-settings.json` in the data directory: a Claude Code settings fragment
-whose `spinnerVerbs` are about the companion (`<icon> getting fed`, `Warming up <icon> egg`,
-`Playing with <icon>`, …; egg-themed while eggs are on offer), updated when the species changes.
+whose `spinnerVerbs` read like battle messages about the companion: two items Claude uses on it
+(`Claude used Oran Berry on <icon>`), two held items it uses by itself (`<icon> ate its Lum Berry`)
+and six of the moves it learns by levelling up (`<icon> used Ember`), fetched from PokéAPI and
+cached in `pokedex/` (generic moves stand in until they are). The draw is fixed per species, so
+the list only changes when the species does; egg-themed verbs show while eggs are on offer.
 It never edits your own Claude Code
 settings; load it with the CLI's `--settings` flag, for instance via a shell function:
 
@@ -359,8 +362,8 @@ Notes:
   only the companion's verbs.
 - The `<icon>` is the same kitty placeholder as in the status line, so it needs a kitty/Ghostty
   terminal and the status line to have transmitted the image at least once in that session.
-  Elsewhere it appears as escape text; if you use another terminal, edit the templates in
-  `SpinnerVerbs.cs` to use the species name instead.
+  Elsewhere it appears as escape text; if you use another terminal, edit `SpinnerVerbs.cs` to use
+  the species name instead.
 - Claude Code's spinner animation re-colours the verb per character, which breaks the placeholder
   while it animates (escape text flickers in). `"prefersReducedMotion": true` in Claude Code's
   settings renders it steadily.

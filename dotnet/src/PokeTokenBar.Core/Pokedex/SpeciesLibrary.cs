@@ -333,6 +333,39 @@ public sealed class SpeciesLibrary
             : null;
     }
 
+    /// <summary>
+    /// Moves the species learns by levelling up, or empty when they are not cached and cannot
+    /// be fetched. Only a non-empty answer is cached, so an offline miss is retried later.
+    /// </summary>
+    public async ValueTask<IReadOnlyList<string>> LevelUpMovesAsync(
+        int speciesId,
+        CancellationToken cancellationToken = default)
+    {
+        if (speciesId < 1)
+        {
+            return [];
+        }
+
+        var file = MovesPath(speciesId);
+        var cached = ReadCache(file, PokedexJsonContext.Default.LevelUpMoves);
+        if (cached is { Names.Count: > 0 })
+        {
+            // Re-checked because the cache is a file anyone can edit, and these reach a terminal.
+            return [.. cached.Names.Select(static name => PokeApiClient.MoveName(name ?? string.Empty)).OfType<string>()];
+        }
+
+        var moves = await _api.GetLevelUpMovesAsync(speciesId, cancellationToken).ConfigureAwait(false);
+        if (moves.Count > 0)
+        {
+            WriteCache(
+                file,
+                new LevelUpMoves { SpeciesId = speciesId, Names = moves },
+                PokedexJsonContext.Default.LevelUpMoves);
+        }
+
+        return moves;
+    }
+
     private Dictionary<string, string> LoadNames()
     {
         if (_names is not null)
@@ -384,6 +417,11 @@ public sealed class SpeciesLibrary
         SysIO.Path.Combine(
             _directory,
             string.Create(CultureInfo.InvariantCulture, $"lineage-{speciesId}.json"));
+
+    private string MovesPath(int speciesId) =>
+        SysIO.Path.Combine(
+            _directory,
+            string.Create(CultureInfo.InvariantCulture, $"moves-{speciesId}.json"));
 
     private string PathsPath(int speciesId) =>
         SysIO.Path.Combine(

@@ -262,6 +262,49 @@ public sealed class PokeApiClientTests
         Assert.Equal([1, 2], Assert.Single(chain.Paths));
     }
 
+    [Fact]
+    public async Task ReadsLevelUpMovesSortedAndDistinct()
+    {
+        var body = """
+        {"data":{"pokemonmove":[
+          {"move":{"movenames":[{"name":"Scratch"}]}},
+          {"move":{"movenames":[{"name":"Ember"}]}},
+          {"move":{"movenames":[{"name":"Ember"}]}},
+          {"move":{"movenames":[]}},
+          {"move":{"movenames":[{"name":"Dragon Rage"}]}}
+        ]}}
+        """;
+
+        var moves = await new PokeApiClient(new HttpClient(new StubHandler(Json(body)))).GetLevelUpMovesAsync(4);
+
+        Assert.Equal(["Dragon Rage", "Ember", "Scratch"], moves);
+    }
+
+    [Theory]
+    [InlineData("Double-Edge", "Double-Edge")]
+    [InlineData("  U-turn ", "U-turn")]
+    [InlineData("King’s Shield", "King's Shield")]
+    [InlineData("\u001b[31mEmber", null)]
+    [InlineData("<b>Ember</b>", null)]
+    [InlineData("", null)]
+    [InlineData("A move name far too long to be real", null)]
+    public void KeepsOnlyNamesThatLookLikeMoves(string value, string? expected)
+    {
+        // Move names end up in a terminal, so anything that could carry an escape is refused.
+        Assert.Equal(expected, PokeApiClient.MoveName(value));
+    }
+
+    [Fact]
+    public async Task AsksForNoMovesOutsideTheSpriteRange()
+    {
+        var handler = new StubHandler(Json("{}"));
+
+        var moves = await new PokeApiClient(new HttpClient(handler)).GetLevelUpMovesAsync(9999);
+
+        Assert.Empty(moves);
+        Assert.Equal(0, handler.Calls);
+    }
+
     private static HttpResponseMessage Json(string body)
     {
         var response = new HttpResponseMessage(HttpStatusCode.OK)
@@ -593,6 +636,40 @@ public sealed class SpeciesLibraryTests
         new(new PokeApiClient(new HttpClient(new OfflineHandler())), directory.Path);
 
     /// <summary>Common-rarity entries, so seed 0 draws the first.</summary>
+    [Fact]
+    public async Task CachesLevelUpMovesSoTheNextLookupNeedsNoNetwork()
+    {
+        using var directory = new TempPokedexDirectory();
+        var body = """{"data":{"pokemonmove":[{"move":{"movenames":[{"name":"Ember"}]}}]}}""";
+        var online = new SpeciesLibrary(new PokeApiClient(new HttpClient(new SingleResponseHandler(body))), directory.Path);
+
+        Assert.Equal(["Ember"], await online.LevelUpMovesAsync(4));
+
+        var offline = new SpeciesLibrary(new PokeApiClient(new HttpClient(new ThrowIfCalledHandler())), directory.Path);
+        Assert.Equal(["Ember"], await offline.LevelUpMovesAsync(4));
+    }
+
+    [Fact]
+    public async Task DoesNotCacheAnEmptyMoveList()
+    {
+        // An offline miss must be retried on a later refresh, not remembered as "no moves".
+        using var directory = new TempPokedexDirectory();
+
+        Assert.Empty(await OfflineLibrary(directory).LevelUpMovesAsync(4));
+        Assert.False(System.IO.File.Exists(System.IO.Path.Combine(directory.Path, "moves-4.json")));
+    }
+
+    [Fact]
+    public async Task DropsCachedMoveNamesThatCouldCarryAnEscape()
+    {
+        using var directory = new TempPokedexDirectory();
+        System.IO.File.WriteAllText(
+            System.IO.Path.Combine(directory.Path, "moves-4.json"),
+            """{"speciesId":4,"names":["Ember","\u001b[2JScratch"]}""");
+
+        Assert.Equal(["Ember"], await OfflineLibrary(directory).LevelUpMovesAsync(4));
+    }
+
     private static void CacheIndex(TempPokedexDirectory directory, params int[] ids)
     {
         var entries = string.Join(
